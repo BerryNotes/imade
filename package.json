@@ -41,7 +41,7 @@
       "target": ["AppImage", "zip"],
       "category": "Audio"
     },
-    "artifactName": "iMade-${version}.${ext}",
+    "artifactName": "iMade.${ext}",
     "files": [
       "electron.js",
       "server.js",
