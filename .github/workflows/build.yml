@@ -8,14 +8,15 @@ on:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
-            cmd: npm run build
+            cmd: npm run build -- --publish never
           - os: macos-latest
-            cmd: npm run build:mac
+            cmd: npm run build:mac -- --publish never
           - os: ubuntu-latest
-            cmd: npm run build:linux
+            cmd: npm run build:linux -- --publish never
 
     runs-on: ${{ matrix.os }}
 
