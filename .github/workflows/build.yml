@@ -1,0 +1,73 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            cmd: npm run build
+          - os: macos-latest
+            cmd: npm run build:mac
+          - os: ubuntu-latest
+            cmd: npm run build:linux
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - run: ${{ matrix.cmd }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.os }}
+          path: |
+            dist/iMade-win.zip
+            dist/iMade-mac.zip
+            dist/iMade-linux.zip
+            dist/iMade-linux.AppImage
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create release on imade-releases
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          FILES=""
+          for f in iMade-win.zip iMade-mac.zip iMade-linux.zip iMade-linux.AppImage; do
+            [ -f "$f" ] && FILES="$FILES $f"
+          done
+          gh release create "$TAG" $FILES \
+            --repo BerryNotes/imade-releases \
+            --title "iMade $TAG" \
+            --notes "## Download
+
+          | Platform | File |
+          |----------|------|
+          | Windows | iMade-win.zip |
+          | macOS | iMade-mac.zip |
+          | Linux | iMade-linux.AppImage or iMade-linux.zip |
+
+          Extract and run. No installation required."
