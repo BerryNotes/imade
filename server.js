@@ -2,17 +2,17 @@ const express = require("express");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
-const os = require("os");
 
 const app = express();
-const PORT = 3000;
-const DATA_DIR = path.join(__dirname, "data");
-const UPLOADS_DIR = path.join(__dirname, "uploads");
+const PORT = process.env.PORT || 3000;
+const BASE_DIR = process.env.APP_DATA_PATH || __dirname;
+const DATA_DIR = path.join(BASE_DIR, "data");
+const UPLOADS_DIR = path.join(BASE_DIR, "uploads");
 const SONGS_FILE = path.join(DATA_DIR, "songs.json");
 const GENRES_FILE = path.join(DATA_DIR, "genres.json");
 const COMPARISONS_FILE = path.join(DATA_DIR, "comparisons.json");
 const PLAYLISTS_FILE = path.join(DATA_DIR, "playlists.json");
-const BACKUPS_DIR = path.join(__dirname, "backups");
+const BACKUPS_DIR = path.join(BASE_DIR, "backups");
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR);
@@ -98,7 +98,7 @@ app.put("/api/songs/:id", upload.single("audio"), (req, res) => {
   const idx = songs.findIndex((s) => s.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: "Not found" });
   if (req.file && songs[idx].audioFile) {
-    const p = path.join(__dirname, songs[idx].audioFile);
+    const p = path.join(BASE_DIR, songs[idx].audioFile);
     if (fs.existsSync(p)) fs.unlinkSync(p);
   }
   // Handle baseElo (manual Elo override)
@@ -133,7 +133,7 @@ app.delete("/api/songs/:id", (req, res) => {
   let songs = readJSON(SONGS_FILE);
   const song = songs.find((s) => s.id === req.params.id);
   if (song?.audioFile) {
-    const p = path.join(__dirname, song.audioFile);
+    const p = path.join(BASE_DIR, song.audioFile);
     if (fs.existsSync(p)) fs.unlinkSync(p);
   }
   songs = songs.filter((s) => s.id !== req.params.id);
@@ -361,18 +361,20 @@ app.post("/api/comparisons/import", express.json({ limit: "50mb" }), (req, res) 
 
 // ---- FRONTEND ----
 
-app.get("/", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
+app.use(express.static(path.join(__dirname, "dist-client")));
+app.get("/", (req, res) => res.sendFile(path.join(__dirname, "dist-client", "index.html")));
 
-app.listen(PORT, "0.0.0.0", () => {
-  const nets = os.networkInterfaces();
-  let localIP = "localhost";
-  for (const name of Object.keys(nets)) {
-    for (const net of nets[name]) {
-      if (net.family === "IPv4" && !net.internal) { localIP = net.address; break; }
-    }
-  }
-  console.log("\n  ♪  My Songs is running!\n");
-  console.log("  Local:    http://localhost:" + PORT);
-  console.log("  Network:  http://" + localIP + ":" + PORT);
-  console.log("\n  Open the Network URL on any device on the same Wi-Fi.\n");
-});
+function startServer(callback) {
+  const server = app.listen(PORT, "127.0.0.1", () => {
+    const port = server.address().port;
+    console.log("\n  ♪  iMade is running on http://localhost:" + port + "\n");
+    if (callback) callback(port);
+  });
+  return server;
+}
+
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = { startServer };

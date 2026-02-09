@@ -2,3 +2,5 @@ node_modules/
 uploads/
 backups/
 data/
+dist/
+dist-client/
