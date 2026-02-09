@@ -22,28 +22,34 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
 
   const addGenre = async () => {
     if (!newGenre.trim()) return;
-    await api.post("/api/genres", { name: newGenre.trim() });
-    setNewGenre("");
-    onRefresh();
+    try {
+      await api.post("/api/genres", { name: newGenre.trim() });
+      setNewGenre("");
+      onRefresh();
+    } catch (e) { showToast("Failed to add genre"); }
   };
   const deleteGenre = async (name) => {
-    const affected = songs.filter(s => s.genre === name).map(s => s.id);
-    if (affected.length > 0) {
-      await api.patch("/api/songs/batch-genre", { ids: affected, genre: "" });
-    }
-    await api.del("/api/genres/" + encodeURIComponent(name));
-    onRefresh();
+    try {
+      const affected = songs.filter(s => s.genre === name).map(s => s.id);
+      if (affected.length > 0) {
+        await api.patch("/api/songs/batch-genre", { ids: affected, genre: "" });
+      }
+      await api.del("/api/genres/" + encodeURIComponent(name));
+      onRefresh();
+    } catch (e) { showToast("Failed to delete genre"); }
   };
   const startEdit = (g) => { setEditingGenre(g); setEditName(g); };
   const saveEdit = async () => {
     if (!editName.trim() || editName.trim() === editingGenre) { setEditingGenre(null); return; }
-    const affected = songs.filter(s => s.genre === editingGenre).map(s => s.id);
-    if (affected.length > 0) {
-      await api.patch("/api/songs/batch-genre", { ids: affected, genre: editName.trim() });
-    }
-    await api.put("/api/genres/" + encodeURIComponent(editingGenre), { name: editName.trim() });
-    setEditingGenre(null);
-    onRefresh();
+    try {
+      const affected = songs.filter(s => s.genre === editingGenre).map(s => s.id);
+      if (affected.length > 0) {
+        await api.patch("/api/songs/batch-genre", { ids: affected, genre: editName.trim() });
+      }
+      await api.put("/api/genres/" + encodeURIComponent(editingGenre), { name: editName.trim() });
+      setEditingGenre(null);
+      onRefresh();
+    } catch (e) { showToast("Failed to rename genre"); }
   };
 
   const exportRankingsText = () => {
@@ -69,23 +75,27 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
   };
 
   const exportBackup = async () => {
-    const data = {
-      songs: await api.get("/api/songs"),
-      comparisons: await api.get("/api/comparisons"),
-      genres: await api.get("/api/genres"),
-      playlists: await api.get("/api/playlists"),
-      exportedAt: new Date().toISOString(),
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "imade-backup-" + new Date().toISOString().slice(0,10) + ".json"; a.click();
-    URL.revokeObjectURL(url);
-    showToast("Backup downloaded");
+    try {
+      const data = {
+        songs: await api.get("/api/songs"),
+        comparisons: await api.get("/api/comparisons"),
+        genres: await api.get("/api/genres"),
+        playlists: await api.get("/api/playlists"),
+        exportedAt: new Date().toISOString(),
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = "imade-backup-" + new Date().toISOString().slice(0,10) + ".json"; a.click();
+      URL.revokeObjectURL(url);
+      showToast("Backup downloaded");
+    } catch (e) { showToast("Failed to export backup"); }
   };
 
   const serverBackup = async () => {
-    const r = await api.post("/api/backup");
-    if (r.name) showToast("Server backup: " + r.name);
+    try {
+      const r = await api.post("/api/backup");
+      if (r.name) showToast("Server backup: " + r.name);
+    } catch (e) { showToast("Failed to create server backup"); }
   };
 
   const sec = { background:"#14142a",border:"1px solid #2a2a45",borderRadius:14,padding:"20px 22px",marginBottom:16 };

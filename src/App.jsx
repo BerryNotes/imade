@@ -85,13 +85,18 @@ function App() {
   const showToast = useCallback((msg, ms) => { setToast(msg); setTimeout(() => setToast(null), ms || 2500); }, []);
 
   const refresh = async () => {
-    const [s, g, c, p] = await Promise.all([
-      api.get("/api/songs"),
-      api.get("/api/genres"),
-      api.get("/api/comparisons"),
-      api.get("/api/playlists"),
-    ]);
-    setSongs(s); setGenres(g); setComparisons(c); setPlaylists(p);
+    try {
+      const [s, g, c, p] = await Promise.all([
+        api.get("/api/songs"),
+        api.get("/api/genres"),
+        api.get("/api/comparisons"),
+        api.get("/api/playlists"),
+      ]);
+      setSongs(s); setGenres(g); setComparisons(c); setPlaylists(p);
+    } catch (e) {
+      console.error("Failed to load data:", e);
+      showToast("Failed to connect to server");
+    }
   };
 
   useEffect(() => { refresh().then(()=>setLoaded(true)); }, []);
@@ -176,6 +181,7 @@ function App() {
     uploadAbortRef.current = false;
     const total = filesToUpload.length;
     setUploadProgress({ done: 0, total });
+    let failedCount = 0;
 
     for (let i = 0; i < total; i += BATCH_SIZE) {
       if (uploadAbortRef.current) break;
@@ -189,7 +195,10 @@ function App() {
       fd.append("dates", JSON.stringify(dates));
       try {
         await api.post("/api/songs/bulk", fd);
-      } catch (e) { console.error("Batch upload error:", e); }
+      } catch (e) {
+        console.error("Batch upload error:", e);
+        failedCount += batch.length;
+      }
       setUploadProgress({ done: Math.min(i + BATCH_SIZE, total), total });
     }
 
@@ -197,6 +206,11 @@ function App() {
     setUploading(false);
     setUploadDone(true);
     await refresh();
+    if (failedCount > 0) {
+      showToast(failedCount + " file" + (failedCount > 1 ? "s" : "") + " failed to upload");
+    } else if (!uploadAbortRef.current) {
+      showToast("Uploaded " + total + " song" + (total > 1 ? "s" : ""));
+    }
   };
 
   const cancelUpload = () => { uploadAbortRef.current = true; };

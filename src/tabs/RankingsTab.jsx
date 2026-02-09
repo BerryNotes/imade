@@ -88,14 +88,17 @@ function RankingsTab({ songs, comparisons, onRefresh, showToast, lastUpdateCompC
       saves.push(api.put("/api/songs/" + songId, fd));
     }
 
-    await Promise.all(saves);
-    await onRefresh();
+    try {
+      await Promise.all(saves);
+      await onRefresh();
+      setLastUpdateCompCount(comparisons.length);
+      const affected = Object.values(adjustments).filter(a => Math.abs(a) >= 0.5).length;
+      const avgShift = affected > 0 ? Math.round(Object.values(adjustments).reduce((s, a) => s + Math.abs(a), 0) / affected) : 0;
+      showToast("Updated " + affected + " songs (avg ±" + avgShift + " Elo)");
+    } catch (e) {
+      showToast("Failed to update rankings");
+    }
     setPropagating(false);
-    setLastUpdateCompCount(comparisons.length);
-
-    const affected = Object.values(adjustments).filter(a => Math.abs(a) >= 0.5).length;
-    const avgShift = affected > 0 ? Math.round(Object.values(adjustments).reduce((s, a) => s + Math.abs(a), 0) / affected) : 0;
-    showToast("Updated " + affected + " songs (avg ±" + avgShift + " Elo)");
   };
 
   const handleDrop = async (e, dropIdx) => {
@@ -289,7 +292,14 @@ function RankingsTab({ songs, comparisons, onRefresh, showToast, lastUpdateCompC
             );
           })()}
 
-          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {propagating && (
+            <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",marginBottom:10,background:"#1a1535",border:"1px solid #2a2a45",borderRadius:10}}>
+              <div style={{width:14,height:14,border:"2px solid #818cf8",borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}} />
+              <span style={{color:"#818cf8",fontSize:12}}>Updating rankings...</span>
+              <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+            </div>
+          )}
+          <div style={{display:"flex",flexDirection:"column",gap:6,opacity:propagating?0.5:1,pointerEvents:propagating?"none":"auto",transition:"opacity 0.2s"}}>
             {filtered.map((s, i) => renderRankRow(s, i))}
           </div>
           <ScrollToTop />

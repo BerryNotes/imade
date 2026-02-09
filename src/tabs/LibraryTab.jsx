@@ -16,11 +16,16 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
   const { play } = useGlobalAudio();
 
   const handleSave = async (fd, id) => {
-    if (id) await api.put("/api/songs/"+id, fd);
-    else await api.post("/api/songs", fd);
-    setModalOpen(false); setEditingSong(null); onRefresh();
+    try {
+      if (id) await api.put("/api/songs/"+id, fd);
+      else await api.post("/api/songs", fd);
+      setModalOpen(false); setEditingSong(null); onRefresh();
+    } catch (e) { showToast("Failed to save song"); }
   };
-  const handleDelete = useCallback(async (id) => { await api.del("/api/songs/"+id); onRefresh(); }, [onRefresh]);
+  const handleDelete = useCallback(async (id) => {
+    try { await api.del("/api/songs/"+id); onRefresh(); }
+    catch (e) { showToast("Failed to delete song"); }
+  }, [onRefresh, showToast]);
   const openEdit = useCallback((s) => { setEditingSong(s); setModalOpen(true); }, []);
 
   const toggleSelect = useCallback((id) => {
@@ -34,11 +39,13 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
   const applyBatchGenre = async () => {
     if (selectedIds.size === 0) return;
     setBatchSaving(true);
-    await api.patch("/api/songs/batch-genre", { ids: [...selectedIds], genre: batchGenre });
-    setSelectedIds(new Set());
-    setSelectMode(false);
-    setBatchGenre("");
-    await onRefresh();
+    try {
+      await api.patch("/api/songs/batch-genre", { ids: [...selectedIds], genre: batchGenre });
+      setSelectedIds(new Set());
+      setSelectMode(false);
+      setBatchGenre("");
+      await onRefresh();
+    } catch (e) { showToast("Failed to update genres"); }
     setBatchSaving(false);
   };
 

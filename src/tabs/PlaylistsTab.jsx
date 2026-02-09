@@ -28,20 +28,25 @@ function PlaylistsTab({ songs, playlists, genres, comparisons, onRefresh, showTo
 
   const createPlaylist = async () => {
     if (!newName.trim()) return;
-    await api.post("/api/playlists", { name: newName.trim(), songIds: [] });
-    setNewName("");
-    setCreating(false);
-    await onRefresh();
+    try {
+      await api.post("/api/playlists", { name: newName.trim(), songIds: [] });
+      setNewName("");
+      setCreating(false);
+      await onRefresh();
+      showToast("Playlist created");
+    } catch (e) { showToast("Failed to create playlist"); }
   };
 
   const createSmartPlaylist = async () => {
     if (smartCount < 1) { showToast("Enter a number"); return; }
     const name = smartName.trim() || ("Top " + smartCount + (smartGenre ? " " + smartGenre : ""));
-    await api.post("/api/playlists", { name, songIds: [], smart: { count: smartCount, genre: smartGenre || "" } });
-    setSmartOpen(false);
-    setSmartName("");
-    await onRefresh();
-    showToast("Created: " + name);
+    try {
+      await api.post("/api/playlists", { name, songIds: [], smart: { count: smartCount, genre: smartGenre || "" } });
+      setSmartOpen(false);
+      setSmartName("");
+      await onRefresh();
+      showToast("Created: " + name);
+    } catch (e) { showToast("Failed to create playlist"); }
   };
 
   // Compute live song IDs for smart playlists
@@ -53,22 +58,28 @@ function PlaylistsTab({ songs, playlists, genres, comparisons, onRefresh, showTo
 
   const deletePlaylist = async (id) => {
     if (!confirm("Delete this playlist?")) return;
-    await api.del("/api/playlists/" + id);
-    if (activeId === id) { setActiveId(null); setView("list"); }
-    await onRefresh();
+    try {
+      await api.del("/api/playlists/" + id);
+      if (activeId === id) { setActiveId(null); setView("list"); }
+      await onRefresh();
+    } catch (e) { showToast("Failed to delete playlist"); }
   };
 
   const addSong = async (songId) => {
     if (!activePl) return;
     if (activePl.songIds.includes(songId)) return;
-    await api.put("/api/playlists/" + activePl.id, { songIds: [...activePl.songIds, songId] });
-    await onRefresh();
+    try {
+      await api.put("/api/playlists/" + activePl.id, { songIds: [...activePl.songIds, songId] });
+      await onRefresh();
+    } catch (e) { showToast("Failed to add song"); }
   };
 
   const removeSong = async (songId) => {
     if (!activePl) return;
-    await api.put("/api/playlists/" + activePl.id, { songIds: activePl.songIds.filter(id => id !== songId) });
-    await onRefresh();
+    try {
+      await api.put("/api/playlists/" + activePl.id, { songIds: activePl.songIds.filter(id => id !== songId) });
+      await onRefresh();
+    } catch (e) { showToast("Failed to remove song"); }
   };
 
   const startPlScroll = () => {
@@ -100,8 +111,10 @@ function PlaylistsTab({ songs, playlists, genres, comparisons, onRefresh, showTo
     const [moved] = ids.splice(dragIdx, 1);
     ids.splice(dragOverIdx, 0, moved);
     setDragIdx(null); setDragOverIdx(null);
-    await api.put("/api/playlists/" + activePl.id, { songIds: ids });
-    await onRefresh();
+    try {
+      await api.put("/api/playlists/" + activePl.id, { songIds: ids });
+      await onRefresh();
+    } catch (e) { showToast("Failed to reorder playlist"); }
   };
 
   const playPlaylist = (plSongs, startIdx) => {
