@@ -31,17 +31,19 @@
     "productName": "iMade",
     "asar": true,
     "win": {
-      "target": "zip"
+      "target": "zip",
+      "artifactName": "iMade-win.${ext}"
     },
     "mac": {
       "target": "zip",
-      "category": "public.app-category.music"
+      "category": "public.app-category.music",
+      "artifactName": "iMade-mac.${ext}"
     },
     "linux": {
       "target": ["AppImage", "zip"],
-      "category": "Audio"
+      "category": "Audio",
+      "artifactName": "iMade-linux.${ext}"
     },
-    "artifactName": "iMade.${ext}",
     "files": [
       "electron.js",
       "server.js",
