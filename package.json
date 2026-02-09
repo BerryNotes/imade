@@ -1,6 +1,6 @@
 {
   "name": "imade",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Personal song library with comparison ranking",
   "main": "electron.js",
   "scripts": {
@@ -28,11 +28,9 @@
     "productName": "iMade",
     "asar": true,
     "win": {
-      "target": "portable"
+      "target": "zip"
     },
-    "portable": {
-      "artifactName": "iMade.exe"
-    },
+    "artifactName": "iMade-${version}.${ext}",
     "files": [
       "electron.js",
       "server.js",

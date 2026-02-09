@@ -4,7 +4,7 @@ import api from '../api';
 
 function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToast, showVariance, setShowVariance,
   sessionLength, setSessionLength, bracketSize, setBracketSize, showWinLoss, setShowWinLoss,
-  theme, setTheme, rowDensity, setRowDensity, listenTimes, setListenTimes, listenTimesRef }) {
+  rowDensity, setRowDensity, listenTimes, setListenTimes, listenTimesRef }) {
   const [newGenre, setNewGenre] = useState("");
   const [editingGenre, setEditingGenre] = useState(null);
   const [editName, setEditName] = useState("");

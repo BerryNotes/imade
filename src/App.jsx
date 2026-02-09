@@ -40,7 +40,6 @@ function App() {
   const [sessionLength, setSessionLength] = useState(() => localStorage.getItem("imade_sessionLength") || "medium");
   const [bracketSize, setBracketSize] = useState(() => parseInt(localStorage.getItem("imade_bracketSize") || "8"));
   const [showWinLoss, setShowWinLoss] = useState(() => localStorage.getItem("imade_showWinLoss") !== "0");
-  const [theme, setTheme] = useState(() => localStorage.getItem("imade_theme") || "dark");
   const [rowDensity, setRowDensity] = useState(() => localStorage.getItem("imade_rowDensity") || "comfortable");
 
   const persistSetting = (key, val, setter) => { setter(val); localStorage.setItem("imade_" + key, String(val)); };
@@ -316,7 +315,6 @@ function App() {
           sessionLength={sessionLength} setSessionLength={(v) => persistSetting("sessionLength", v, setSessionLength)}
           bracketSize={bracketSize} setBracketSize={(v) => { const n = Number(v); setBracketSize(n); localStorage.setItem("imade_bracketSize", String(n)); }}
           showWinLoss={showWinLoss} setShowWinLoss={(v) => { setShowWinLoss(v); localStorage.setItem("imade_showWinLoss", v ? "1" : "0"); }}
-          theme={theme} setTheme={(v) => persistSetting("theme", v, setTheme)}
           rowDensity={rowDensity} setRowDensity={(v) => persistSetting("rowDensity", v, setRowDensity)}
           listenTimes={listenTimes} setListenTimes={setListenTimes} listenTimesRef={listenTimesRef}
           />}
