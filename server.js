@@ -359,6 +359,38 @@ app.post("/api/comparisons/import", express.json({ limit: "50mb" }), (req, res) 
   res.json({ imported: req.body.length });
 });
 
+// ---- UPDATE CHECK ----
+
+const APP_VERSION = require("./package.json").version;
+
+app.get("/api/update-check", async (req, res) => {
+  try {
+    const response = await fetch(
+      "https://api.github.com/repos/BerryNotes/imade-releases/releases/latest",
+      { headers: { "Accept": "application/vnd.github.v3+json", "User-Agent": "iMade-App" } }
+    );
+    if (!response.ok) return res.json({ available: false });
+    const data = await response.json();
+    const latest = (data.tag_name || "").replace(/^v/, "");
+    if (!latest) return res.json({ available: false });
+
+    const current = APP_VERSION.split(".").map(Number);
+    const remote = latest.split(".").map(Number);
+    const newer = remote[0] > current[0] ||
+      (remote[0] === current[0] && remote[1] > current[1]) ||
+      (remote[0] === current[0] && remote[1] === current[1] && remote[2] > current[2]);
+
+    res.json({
+      available: newer,
+      current: APP_VERSION,
+      latest,
+      url: data.html_url || "",
+    });
+  } catch (e) {
+    res.json({ available: false });
+  }
+});
+
 // ---- FRONTEND ----
 
 app.use(express.static(path.join(__dirname, "dist-client")));

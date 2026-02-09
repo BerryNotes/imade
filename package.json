@@ -9,7 +9,10 @@
     "build:client": "vite build",
     "start": "node server.js",
     "electron": "electron .",
-    "build": "vite build && electron-builder --win"
+    "build": "vite build && electron-builder --win",
+    "build:mac": "vite build && electron-builder --mac",
+    "build:linux": "vite build && electron-builder --linux",
+    "build:all": "vite build && electron-builder -mwl"
   },
   "dependencies": {
     "express": "^4.18.2",
@@ -30,11 +33,20 @@
     "win": {
       "target": "zip"
     },
+    "mac": {
+      "target": "zip",
+      "category": "public.app-category.music"
+    },
+    "linux": {
+      "target": ["AppImage", "zip"],
+      "category": "Audio"
+    },
     "artifactName": "iMade-${version}.${ext}",
     "files": [
       "electron.js",
       "server.js",
       "dist-client/**/*",
+      "build/icon.png",
       "package.json",
       "node_modules/**/*"
     ]

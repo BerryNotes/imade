@@ -18,6 +18,7 @@ app.whenReady().then(() => {
       width: 1280,
       height: 800,
       title: "iMade",
+      icon: path.join(__dirname, "build", "icon.png"),
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,

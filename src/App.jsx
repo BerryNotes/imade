@@ -67,6 +67,8 @@ function App() {
   const listenTimesRef = useRef(listenTimes);
   const lastTimeUpdateRef = useRef({ src: null, time: 0 });
 
+  const [updateInfo, setUpdateInfo] = useState(null);
+
   const [uploadFiles, setUploadFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
@@ -99,6 +101,12 @@ function App() {
   };
 
   useEffect(() => { refresh().then(()=>setLoaded(true)); }, []);
+
+  useEffect(() => {
+    api.get("/api/update-check").then(data => {
+      if (data.available) setUpdateInfo(data);
+    }).catch(() => {});
+  }, []);
 
   const audio = useGlobalAudio();
   useEffect(() => {
@@ -276,6 +284,20 @@ function App() {
 
       {/* Toast */}
       {toast && <div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",background:"#1e1e35",border:"1px solid #2a2a45",borderRadius:10,padding:"10px 20px",color:"#e2e8f0",fontSize:13,zIndex:100,animation:"fadeUp 0.2s ease-out",boxShadow:"0 4px 20px rgba(0,0,0,0.4)"}}>{toast}</div>}
+
+      {/* Update available banner */}
+      {updateInfo && (
+        <div style={{position:"fixed",bottom:24,right:24,background:"#1e1e35",border:"1px solid #818cf8",borderRadius:10,padding:"12px 16px",color:"#e2e8f0",fontSize:13,zIndex:100,boxShadow:"0 4px 20px rgba(0,0,0,0.4)",maxWidth:280,animation:"fadeUp 0.2s ease-out"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"start",gap:8}}>
+            <span>Update available: <strong style={{color:"#818cf8"}}>v{updateInfo.latest}</strong></span>
+            <button onClick={() => setUpdateInfo(null)} style={{background:"none",border:"none",color:"#6b7280",cursor:"pointer",fontSize:16,lineHeight:1,padding:0}}>×</button>
+          </div>
+          <a href={updateInfo.url} target="_blank" rel="noopener noreferrer"
+            style={{display:"inline-block",marginTop:8,color:"#818cf8",fontSize:12,textDecoration:"underline"}}>
+            Download
+          </a>
+        </div>
+      )}
 
       {/* Content */}
       <div style={{maxWidth:1200,margin:"0 auto",padding:"20px 24px 40px"}}>
