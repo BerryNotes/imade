@@ -243,27 +243,38 @@ app.delete("/api/comparisons", (req, res) => {
 
 // ---- RANKINGS ----
 
+// Shared Elo computation — matches the frontend useRanking algorithm
+const SOURCE_K = { tier: 24, quick: 32, classic: 48, bracket: 56 };
+const computeElo = (songs, comps) => {
+  const elo = {};
+  songs.forEach(s => (elo[s.id] = 500));
+  for (const c of comps) {
+    const ra = elo[c.songA] || 500, rb = elo[c.songB] || 500;
+    const ea = 1 / (1 + Math.pow(10, (rb - ra) / 400));
+    const eb = 1 / (1 + Math.pow(10, (ra - rb) / 400));
+    const src = c.source || "classic";
+    const baseK = SOURCE_K[src] || 40;
+    const kA = baseK * (1 - Math.abs(ra - 500) / 500 * 0.4);
+    const kB = baseK * (1 - Math.abs(rb - 500) / 500 * 0.4);
+    if (c.winner === c.songA) {
+      elo[c.songA] = Math.max(0, Math.min(1000, ra + kA * (1 - ea)));
+      elo[c.songB] = Math.max(0, Math.min(1000, rb + kB * (0 - eb)));
+    } else {
+      elo[c.songB] = Math.max(0, Math.min(1000, rb + kB * (1 - eb)));
+      elo[c.songA] = Math.max(0, Math.min(1000, ra + kA * (0 - ea)));
+    }
+  }
+  return elo;
+};
+
 app.get("/api/rankings", (req, res) => {
   const songs = readJSON(SONGS_FILE);
   const comps = readJSON(COMPARISONS_FILE);
-  const K = 32;
-  const ratings = {};
-  songs.forEach((s) => (ratings[s.id] = 1500));
-  const sorted = [...comps].sort((a, b) => a.timestamp - b.timestamp);
-  for (const comp of sorted) {
-    const rA = ratings[comp.songA] ?? 1500;
-    const rB = ratings[comp.songB] ?? 1500;
-    const eA = 1 / (1 + Math.pow(10, (rB - rA) / 400));
-    const eB = 1 / (1 + Math.pow(10, (rA - rB) / 400));
-    const sA = comp.winner === comp.songA ? 1 : 0;
-    const sB = comp.winner === comp.songB ? 1 : 0;
-    ratings[comp.songA] = rA + K * (sA - eA);
-    ratings[comp.songB] = rB + K * (sB - eB);
-  }
+  const elo = computeElo(songs, comps);
   const totalPairs = (songs.length * (songs.length - 1)) / 2;
   const ranked = songs
     .map((s) => ({
-      ...s, elo: Math.round(ratings[s.id] || 1500),
+      ...s, elo: Math.round(s.baseElo > 0 ? s.baseElo : (elo[s.id] || 500)),
       wins: comps.filter((c) => c.winner === s.id).length,
       losses: comps.filter((c) => (c.songA === s.id || c.songB === s.id) && c.winner !== s.id).length,
     }))
@@ -279,25 +290,9 @@ app.get("/api/export/m3u", (req, res) => {
   const genre = req.query.genre || "";
   const limit = parseInt(req.query.limit, 10) || 0;
 
-  // Compute Elo
-  const ratings = {};
-  songs.forEach(s => ratings[s.id] = 1500);
-  for (const c of comps) {
-    const rA = ratings[c.songA] ?? 1500;
-    const rB = ratings[c.songB] ?? 1500;
-    const eA = 1 / (1 + Math.pow(10, (rB - rA) / 400));
-    const eB = 1 / (1 + Math.pow(10, (rA - rB) / 400));
-    if (c.winner === c.songA) {
-      ratings[c.songA] = rA + 32 * (1 - eA);
-      ratings[c.songB] = rB + 32 * (0 - eB);
-    } else {
-      ratings[c.songB] = rB + 32 * (1 - eB);
-      ratings[c.songA] = rA + 32 * (0 - eA);
-    }
-  }
-
+  const elo = computeElo(songs, comps);
   let ranked = songs
-    .map(s => ({ ...s, elo: Math.round(s.baseElo || ratings[s.id] || 1500) }))
+    .map(s => ({ ...s, elo: Math.round(s.baseElo > 0 ? s.baseElo : (elo[s.id] || 500)) }))
     .sort((a, b) => b.elo - a.elo);
 
   if (genre) ranked = ranked.filter(s => s.genre === genre);

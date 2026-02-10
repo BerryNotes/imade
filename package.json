@@ -1,6 +1,6 @@
 {
   "name": "imade",
-  "version": "2.3.2",
+  "version": "2.3.3",
   "description": "Personal song library with comparison ranking",
   "main": "electron.js",
   "scripts": {
