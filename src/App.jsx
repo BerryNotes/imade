@@ -422,10 +422,12 @@ function App() {
             {tab === "rankings" && <RankingsTab songs={songs} comparisons={comparisons} onRefresh={refresh} showToast={showToast}
               lastUpdateCompCount={lastUpdateCompCount} setLastUpdateCompCount={setLastUpdateCompCount} switchTab={switchTab}
               showVariance={showVariance} showWinLoss={showWinLoss} rowDensity={rowDensity}
+              stickyTop={headerHeight}
               setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx} />}
             {tab === "stats" && <StatsTab songs={songs} comparisons={comparisons} listenTimes={listenTimes}
               setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx} switchTab={switchTab}
-              onStartFocusedSession={(songIds) => { setFocusedSessionSongs(songIds); switchTab("battle"); }} />}
+              onStartFocusedSession={(songIds) => { setFocusedSessionSongs(songIds); switchTab("battle"); }}
+              playlists={playlists} onRefresh={refresh} showToast={showToast} />}
             {tab === "genres" && <SettingsTab genres={genres} songs={songs} comparisons={comparisons} playlists={playlists} onRefresh={refresh} showToast={showToast}
               showVariance={showVariance} setShowVariance={(v) => { setShowVariance(v); localStorage.setItem("imade_showVariance", v ? "1" : "0"); }}
               sessionLength={sessionLength} setSessionLength={(v) => persistSetting("sessionLength", v, setSessionLength)}

@@ -2,6 +2,26 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useGlobalAudio } from '../components/AudioProvider';
 import { useRanking } from '../hooks/useRanking';
 import { formatDuration } from '../utils';
+import api from '../api';
+
+const TIER_RANGES = [
+  { label: "S", min: 800, color: "#22c55e" },
+  { label: "A", min: 650, color: "#818cf8" },
+  { label: "B", min: 500, color: "#3b82f6" },
+  { label: "C", min: 350, color: "#f59e0b" },
+  { label: "D", min: 200, color: "#f97316" },
+  { label: "E", min: 0, color: "#ef4444" },
+];
+
+function getTier(elo) {
+  for (const t of TIER_RANGES) { if (elo >= t.min) return t; }
+  return TIER_RANGES[TIER_RANGES.length - 1];
+}
+
+function getQuarterKey(dateStr) {
+  const d = new Date(dateStr);
+  return `${d.getFullYear()} Q${Math.floor(d.getMonth() / 3) + 1}`;
+}
 
 function drawChart(canvas, stats, standings, chartZoom, chartPan, showFitLine, chartGenre, selectedSongs, chartViewRef, chartPointsRef, fitLineRef) {
   if (!stats || !canvas || stats.dateEloPoints.length === 0) return;
@@ -243,7 +263,7 @@ function handleChartMouseMove(e, chartRef, isDraggingRef, setDragEnd, setChartTo
   setChartTooltip(closest ? { x: closest.x, y: closest.y, point: closest.point } : null);
 }
 
-function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setPlayerQueue, setPlayerQueueIdx, switchTab }) {
+function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setPlayerQueue, setPlayerQueueIdx, switchTab, playlists, onRefresh, showToast }) {
   const ranking = useRanking(songs, comparisons);
   const { standings } = ranking;
   const tournament = ranking; // alias
@@ -252,6 +272,27 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
   const chartAudio = useGlobalAudio();
   const [, forceAudioUpdate] = useState(0);
   useEffect(() => chartAudio.subscribe(() => forceAudioUpdate(n => n + 1)), [chartAudio.subscribe]);
+
+  // Number key shortcuts — scroll to Nth card in active tab
+  const cardRefsMap = useRef({});
+  const cardRef = (tab, idx) => (el) => {
+    if (!cardRefsMap.current[tab]) cardRefsMap.current[tab] = [];
+    cardRefsMap.current[tab][idx] = el;
+  };
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") return;
+      const num = parseInt(e.key);
+      if (num >= 1 && num <= 9) {
+        const cards = cardRefsMap.current[statsSubTab];
+        if (cards && cards[num - 1]) {
+          cards[num - 1].scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [statsSubTab]);
   const [chartZoom, setChartZoom] = useState(1);
   const [chartPan, setChartPan] = useState(0);
   const [chartTooltip, setChartTooltip] = useState(null);
@@ -269,6 +310,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
   const [isDragging, setIsDragging] = useState(false);
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef(null);
+
 
   const stats = useMemo(() => {
     if (comparisons.length === 0) return null;
@@ -305,6 +347,250 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
 
     return { genreCounts, avgEloByGenre, dateEloPoints, allChartGenres, genreColorMap };
   }, [songs, comparisons, standings]);
+
+  // === Win Rate Trends ===
+  const winRateTrends = useMemo(() => {
+    if (!stats || standings.length === 0) return null;
+    const rankedWithDates = standings.filter(s => s.date && s.totalComparisons > 0);
+    if (rankedWithDates.length === 0) return null;
+
+    // Group by quarter
+    const quarters = {};
+    rankedWithDates.forEach(s => {
+      const qk = getQuarterKey(s.date);
+      if (!quarters[qk]) quarters[qk] = [];
+      quarters[qk].push(s);
+    });
+
+    const sortedKeys = Object.keys(quarters).sort();
+    if (sortedKeys.length < 2) return null;
+
+    // For each pair of quarters, compute cross-quarter win rate
+    // "Win rate" = fraction of songs in this quarter that beat the overall average
+    const overallAvg = rankedWithDates.reduce((s, x) => s + x.elo, 0) / rankedWithDates.length;
+
+    const qData = sortedKeys.map(qk => {
+      const qSongs = quarters[qk];
+      const winsVsAvg = qSongs.filter(s => s.elo > overallAvg).length;
+      const winRate = qSongs.length > 0 ? winsVsAvg / qSongs.length : 0;
+      const avgElo = qSongs.reduce((s, x) => s + x.elo, 0) / qSongs.length;
+      return { quarter: qk, count: qSongs.length, winRate, avgElo: Math.round(avgElo) };
+    });
+
+    // Compare newest half vs oldest half
+    const mid = Math.floor(qData.length / 2);
+    const olderSongs = sortedKeys.slice(0, mid).flatMap(k => quarters[k]);
+    const newerSongs = sortedKeys.slice(mid).flatMap(k => quarters[k]);
+    const olderWinRate = olderSongs.length > 0 ? olderSongs.filter(s => s.elo > overallAvg).length / olderSongs.length : 0;
+    const newerWinRate = newerSongs.length > 0 ? newerSongs.filter(s => s.elo > overallAvg).length / newerSongs.length : 0;
+
+    return { quarters: qData, newerWinRate, olderWinRate };
+  }, [stats, standings]);
+
+  // === Confidence Data ===
+  const confidenceData = useMemo(() => {
+    if (!stats || standings.length < 3) return null;
+    const ranked = standings.filter(s => s.totalComparisons > 0);
+    if (ranked.length < 3) return null;
+
+    // Per-song confidence: lower variance (eloMax - eloMin) = higher confidence
+    // Score = max(0, 100 - Math.round((eloMax - eloMin) / 3))
+    const songConfidence = ranked.map(s => {
+      const variance = s.eloMax - s.eloMin;
+      const confidence = Math.max(0, 100 - Math.round(variance / 3));
+      return { id: s.id, title: s.title, variance, confidence, elo: s.elo };
+    });
+
+    // Overall = average of per-song confidence
+    const score = Math.round(songConfidence.reduce((s, x) => s + x.confidence, 0) / songConfidence.length);
+
+    // Per-genre confidence = average confidence within genre
+    const genreGroups = {};
+    ranked.forEach((s, i) => {
+      const g = s.genre || "untagged";
+      if (!genreGroups[g]) genreGroups[g] = [];
+      genreGroups[g].push(songConfidence[i].confidence);
+    });
+    const genreConfidence = Object.entries(genreGroups)
+      .filter(([, scores]) => scores.length >= 2)
+      .map(([genre, scores]) => ({
+        genre,
+        confidence: Math.round(scores.reduce((a, b) => a + b, 0) / scores.length),
+        count: scores.length,
+      }))
+      .sort((a, b) => b.confidence - a.confidence);
+
+    const sorted = [...songConfidence].sort((a, b) => a.confidence - b.confidence);
+    const leastConfident = sorted.slice(0, 5);
+    const mostConfident = sorted.filter(s => s.confidence > 0).sort((a, b) => b.confidence - a.confidence).slice(0, 5);
+
+    return { score, genreConfidence, leastConfident, mostConfident };
+  }, [stats, standings]);
+
+  // === Weakness Data ===
+  const weaknessData = useMemo(() => {
+    if (!stats || standings.length < 5) return null;
+    const ranked = standings.filter(s => s.totalComparisons > 0);
+    if (ranked.length < 5) return null;
+
+    const overallAvg = ranked.reduce((s, x) => s + x.elo, 0) / ranked.length;
+
+    // Genres below average
+    const genreAvg = {};
+    const genreCount = {};
+    ranked.forEach(s => {
+      const g = s.genre || "untagged";
+      genreAvg[g] = (genreAvg[g] || 0) + s.elo;
+      genreCount[g] = (genreCount[g] || 0) + 1;
+    });
+    const weakGenres = Object.entries(genreAvg)
+      .map(([g, total]) => ({ genre: g, avgElo: Math.round(total / genreCount[g]), deficit: Math.round(overallAvg - total / genreCount[g]), count: genreCount[g] }))
+      .filter(x => x.deficit > 0)
+      .sort((a, b) => b.deficit - a.deficit);
+
+    // Bottom 5 songs
+    const bottom5 = [...ranked].sort((a, b) => a.elo - b.elo).slice(0, 5);
+
+    return { weakGenres, bottom5, overallAvg: Math.round(overallAvg) };
+  }, [stats, standings]);
+
+  // === Creative Streaks ===
+  const creativeStreaks = useMemo(() => {
+    if (!stats || standings.length < 5) return null;
+    const ranked = standings.filter(s => s.date && s.totalComparisons > 0).sort((a, b) => a.date.localeCompare(b.date));
+    if (ranked.length < 5) return null;
+
+    const sortedElos = ranked.map(s => s.elo).sort((a, b) => a - b);
+    const p75 = sortedElos[Math.floor(sortedElos.length * 0.75)];
+    const p25 = sortedElos[Math.floor(sortedElos.length * 0.25)];
+    const overallAvg = ranked.reduce((s, x) => s + x.elo, 0) / ranked.length;
+
+    // Classify each song
+    const classified = ranked.map(s => ({
+      ...s,
+      tier: s.elo >= p75 ? "hot" : s.elo <= p25 ? "cold" : "neutral",
+    }));
+
+    // Find streaks of 3+
+    const findStreaks = (type) => {
+      const streaks = [];
+      let current = [];
+      for (const s of classified) {
+        if (s.tier === type) {
+          current.push(s);
+        } else {
+          if (current.length >= 3) streaks.push([...current]);
+          current = [];
+        }
+      }
+      if (current.length >= 3) streaks.push([...current]);
+      return streaks.map(songs => ({
+        songs,
+        avgElo: Math.round(songs.reduce((s, x) => s + x.elo, 0) / songs.length),
+        startDate: songs[0].date,
+        endDate: songs[songs.length - 1].date,
+      }));
+    };
+
+    // Month grid data
+    const monthMap = {};
+    ranked.forEach(s => {
+      const d = new Date(s.date);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      if (!monthMap[key]) monthMap[key] = [];
+      monthMap[key].push(s);
+    });
+    const allDates = ranked.map(s => new Date(s.date));
+    const minDate = new Date(Math.min(...allDates));
+    const maxDate = new Date(Math.max(...allDates));
+    const months = [];
+    const cur = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
+    while (cur <= maxDate) {
+      const key = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}`;
+      const songs = monthMap[key] || [];
+      const avgElo = songs.length > 0 ? songs.reduce((s, x) => s + x.elo, 0) / songs.length : null;
+      months.push({ key, year: cur.getFullYear(), month: cur.getMonth(), count: songs.length, avgElo: avgElo !== null ? Math.round(avgElo) : null });
+      cur.setMonth(cur.getMonth() + 1);
+    }
+
+    return { timeline: classified, hotStreaks: findStreaks("hot"), coldStreaks: findStreaks("cold"), p75, p25, months, overallAvg };
+  }, [stats, standings]);
+
+
+  // === Auto Albums ===
+  const autoAlbums = useMemo(() => {
+    const ranked = standings.filter(s => s.totalComparisons > 0).sort((a, b) => b.elo - a.elo);
+    if (ranked.length < 3) return null;
+
+    // Genre groups for reuse
+    const genreGroups = {};
+    ranked.forEach(s => { const g = s.genre || "untagged"; if (!genreGroups[g]) genreGroups[g] = []; genreGroups[g].push(s); });
+    const genreNames = Object.keys(genreGroups).sort((a, b) => genreGroups[b].length - genreGroups[a].length);
+
+    // Your Best — top 10 by Elo
+    const yourBest = ranked.slice(0, 10);
+    const bestIds = new Set(yourBest.map(s => s.id));
+
+    // Best of [Top Genre] — top 10 in the most popular genre (excluding overall top to diversify)
+    const topGenre = genreNames[0] || "untagged";
+    const bestOfGenre1 = (genreGroups[topGenre] || []).slice(0, 10);
+
+    // Best of [2nd Genre] — top 10 in the second most popular genre
+    const secondGenre = genreNames.length > 1 ? genreNames[1] : null;
+    const bestOfGenre2 = secondGenre ? (genreGroups[secondGenre] || []).slice(0, 10) : [];
+
+    // Hidden Gems — high Elo + low listen time, skip songs already in "Your Best"
+    const ltEntries = Object.entries(listenTimes || {});
+    const maxLT = ltEntries.length > 0 ? Math.max(...ltEntries.map(([, t]) => t)) : 1;
+    const hiddenGems = ranked
+      .filter(s => !bestIds.has(s.id))
+      .map(s => ({ ...s, ltRatio: maxLT > 0 ? ((listenTimes || {})[s.id] || 0) / maxLT : 0 }))
+      .filter(s => s.ltRatio < 0.3)
+      .slice(0, 10);
+
+    // Rising Stars — biggest positive Elo shift, >=5 comparisons, skip "Your Best"
+    const risingStars = ranked
+      .filter(s => s.totalComparisons >= 5 && !bestIds.has(s.id))
+      .map(s => ({ ...s, shift: s.elo - 500 }))
+      .sort((a, b) => b.shift - a.shift)
+      .slice(0, 10);
+
+    // Deep Cuts — 40th-60th percentile
+    const total = ranked.length;
+    const p40 = Math.floor(total * 0.4);
+    const p60 = Math.floor(total * 0.6);
+    const deepCuts = ranked.slice(p40, p60 + 1).slice(0, 10);
+
+    const albums = [
+      { id: "best", title: "Your Best", desc: "Top 10 by rating", songs: yourBest },
+      { id: "genre1", title: `Best of ${topGenre}`, desc: `Top ${topGenre} songs`, songs: bestOfGenre1 },
+    ];
+    if (secondGenre && bestOfGenre2.length > 0) {
+      albums.push({ id: "genre2", title: `Best of ${secondGenre}`, desc: `Top ${secondGenre} songs`, songs: bestOfGenre2 });
+    }
+    albums.push(
+      { id: "gems", title: "Hidden Gems", desc: "High rating, low listen time", songs: hiddenGems },
+      { id: "rising", title: "Rising Stars", desc: "Biggest Elo gains (5+ comparisons)", songs: risingStars },
+      { id: "deep", title: "Deep Cuts", desc: "40th\u201360th percentile", songs: deepCuts },
+    );
+    return albums;
+  }, [standings, listenTimes]);
+
+  const [portfolioSaving, setPortfolioSaving] = useState(false);
+
+  const saveAlbumAsPlaylist = async (album) => {
+    if (!album || album.songs.length === 0) return;
+    setPortfolioSaving(true);
+    const name = `Album: ${album.title}`;
+    try {
+      await api.post("/api/playlists", { name, songIds: album.songs.map(s => s.id) });
+      await onRefresh();
+      showToast("Playlist saved: " + name);
+    } catch (e) {
+      showToast("Failed to save playlist");
+    }
+    setPortfolioSaving(false);
+  };
 
   // Non-passive wheel handler to prevent page scroll and zoom toward cursor
   useEffect(() => {
@@ -366,9 +652,11 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
   const maxGenreCount = Math.max(...Object.values(stats.genreCounts));
 
   const subTabs = [
-    { id: "improvement", label: "Improvement", icon: "📈" },
-    { id: "breakdown", label: "Breakdown", icon: "📊" },
-    { id: "listening", label: "Listening", icon: "🎧" },
+    { id: "improvement", label: "Improvement", icon: "\u{1F4C8}" },
+    { id: "breakdown", label: "Breakdown", icon: "\u{1F4CA}" },
+    { id: "listening", label: "Listening", icon: "\u{1F3A7}" },
+    { id: "growth", label: "Growth", icon: "\u{1F680}" },
+    { id: "portfolio", label: "Portfolio", icon: "\u{1F3AF}" },
   ];
 
   return (
@@ -410,9 +698,38 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
 
         {/* ===== IMPROVEMENT TAB ===== */}
         <div style={{display: statsSubTab === "improvement" ? "block" : "none"}}>
+          {/* === Win Rate Ring === */}
+          {winRateTrends && (
+            <div ref={cardRef("improvement",0)} style={{...cardStyle,marginBottom:16,display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
+              <div style={{textAlign:"center",minWidth:100}}>
+                <div style={{position:"relative",width:90,height:90,margin:"0 auto"}}>
+                  <svg viewBox="0 0 100 100" style={{width:90,height:90}}>
+                    <circle cx="50" cy="50" r="42" fill="none" stroke="#1e1e35" strokeWidth="8" />
+                    <circle cx="50" cy="50" r="42" fill="none"
+                      stroke="#22c55e" strokeWidth="8" strokeLinecap="round"
+                      strokeDasharray={`${Math.round(winRateTrends.newerWinRate * 100) * 2.64} 264`}
+                      transform="rotate(-90 50 50)" />
+                  </svg>
+                  <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center"}}>
+                    <div style={{color:"#22c55e",fontSize:22,fontWeight:700}}>{Math.round(winRateTrends.newerWinRate * 100)}%</div>
+                  </div>
+                </div>
+              </div>
+              <div style={{flex:1,minWidth:180}}>
+                <div style={headStyle}>win rate</div>
+                <div style={{fontSize:12}}>
+                  <span style={{color:winRateTrends.newerWinRate > winRateTrends.olderWinRate ? "#22c55e" : "#f59e0b",fontWeight:600}}>
+                    Your newer songs win {Math.round(winRateTrends.newerWinRate * 100)}% of the time
+                  </span>
+                  <span style={{color:"#6b7280"}}> vs {Math.round(winRateTrends.olderWinRate * 100)}% for older songs</span>
+                </div>
+              </div>
+            </div>
+          )}
+
             {/* Date vs Elo chart */}
             {stats.dateEloPoints.length > 0 && (
-        <div style={{...cardStyle,marginBottom:16}}>
+        <div ref={cardRef("improvement",1)} style={{...cardStyle,marginBottom:16}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               <div style={{...headStyle,marginBottom:0}}>rating by creation date</div>
@@ -490,7 +807,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
                         <div style={{color:"#e2e8f0",fontWeight:600}}>{chartTooltip.fitLine.elo1}</div>
                         <div style={{color:"#6b6b80",fontSize:10}}>{chartTooltip.fitLine.date1.toLocaleDateString("en",{month:"short",day:"numeric",year:"numeric"})}</div>
                       </div>
-                      <div style={{color:"#6b6b80",alignSelf:"center"}}>→</div>
+                      <div style={{color:"#6b6b80",alignSelf:"center"}}>{"\u2192"}</div>
                       <div>
                         <div style={{color:"#6b7280"}}>end</div>
                         <div style={{color:"#e2e8f0",fontWeight:600}}>{chartTooltip.fitLine.elo2}</div>
@@ -544,9 +861,9 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
             <div style={{background:"#0d0d1a",border:"1px solid #4338ca40",borderRadius:10,padding:"12px 16px",marginTop:8}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                 <span style={{color:"#818cf8",fontSize:12,fontWeight:600}}>{selectedSongs.length} song{selectedSongs.length !== 1 ? "s" : ""} selected</span>
-                <button onClick={() => setSelectedSongs(null)} style={{background:"none",border:"none",color:"#6b7280",fontSize:11,cursor:"pointer"}}>✕ clear</button>
+                <button onClick={() => setSelectedSongs(null)} style={{background:"none",border:"none",color:"#6b7280",fontSize:11,cursor:"pointer"}}>{"\u2715"} clear</button>
               </div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:10,maxHeight:60,overflow:"auto"}}>
+              <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:10}}>
                 {selectedSongs.slice(0, 20).map(id => {
                   const s = songs.find(x => x.id === id);
                   return s ? <span key={id} style={{background:"#14142a",border:"1px solid #2a2a45",borderRadius:6,padding:"2px 8px",fontSize:10,color:"#a0a0b0"}}>{s.title}</span> : null;
@@ -569,7 +886,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
                     setSelectedSongs(null);
                   }}
                     style={{padding:"10px 16px",borderRadius:10,background:"#4338ca10",border:"1px solid #4338ca50",color:"#818cf8",fontSize:13,fontWeight:600,cursor:"pointer"}}>
-                    ⤮ Play
+                    {"\u2926"} Play
                   </button>
                 </div>
               ) : (
@@ -585,7 +902,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
                     setSelectedSongs(null);
                   }}
                     style={{width:"100%",padding:"10px",borderRadius:10,background:"#4338ca10",border:"1px solid #4338ca50",color:"#818cf8",fontSize:13,fontWeight:600,cursor:"pointer"}}>
-                    ⤮ Shuffle play {selectedSongs.length} song{selectedSongs.length !== 1 ? "s" : ""}
+                    {"\u2926"} Shuffle play {selectedSongs.length} song{selectedSongs.length !== 1 ? "s" : ""}
                   </button>
                 </div>
               )}
@@ -603,15 +920,16 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
               ))}
             </div>
           )}
-          {chartZoom > 1 && <div style={{color:"#5a5a70",fontSize:10,textAlign:"center",marginTop:4}}>scroll to zoom · shift+scroll to pan</div>}
+          {chartZoom > 1 && <div style={{color:"#5a5a70",fontSize:10,textAlign:"center",marginTop:4}}>scroll to zoom {"\u00B7"} shift+scroll to pan</div>}
         </div>
       )}
+
           </div>
 
         {/* ===== BREAKDOWN TAB ===== */}
         <div style={{display: statsSubTab === "breakdown" ? "block" : "none"}}>
       <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
-      <div style={{...cardStyle,flex:"1 1 240px",minWidth:200}}>
+      <div ref={cardRef("breakdown",0)} style={{...cardStyle,flex:"1 1 240px",minWidth:200}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div style={{...headStyle,marginBottom:0}}>genres by rating</div>
         </div>
@@ -651,20 +969,12 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
           buckets[b] = (buckets[b] || 0) + 1;
         });
         const maxCount = Math.max(...Object.values(buckets), 1);
-        const tierRanges = [
-          { label: "S", min: 800, color: "#22c55e" },
-          { label: "A", min: 650, color: "#818cf8" },
-          { label: "B", min: 500, color: "#3b82f6" },
-          { label: "C", min: 350, color: "#f59e0b" },
-          { label: "D", min: 200, color: "#f97316" },
-          { label: "E", min: 0, color: "#ef4444" },
-        ];
         const getTierColor = (elo) => {
-          for (const t of tierRanges) { if (elo >= t.min) return t.color; }
+          for (const t of TIER_RANGES) { if (elo >= t.min) return t.color; }
           return "#ef4444";
         };
         return (
-          <div style={{...cardStyle,flex:"1 1 240px",minWidth:200}}>
+          <div ref={cardRef("breakdown",1)} style={{...cardStyle,flex:"1 1 240px",minWidth:200}}>
             <div style={{...headStyle}}>rating distribution</div>
             <div style={{display:"flex",alignItems:"flex-end",gap:2,height:120,position:"relative"}} onMouseLeave={() => setHoveredBucket(null)}>
               {Object.entries(buckets).sort((a,b) => Number(a[0]) - Number(b[0])).map(([elo, count]) => {
@@ -676,7 +986,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
                     onMouseEnter={() => count > 0 && setHoveredBucket(elo)}>
                     {isHovered && count > 0 && (
                       <div style={{position:"absolute",top:-22,background:"#2a2a45",color:"#e2e8f0",fontSize:10,fontWeight:600,padding:"2px 6px",borderRadius:4,whiteSpace:"nowrap",zIndex:10,pointerEvents:"none"}}>
-                        {count} song{count !== 1 ? "s" : ""} · {e}–{e + bucketSize}
+                        {count} song{count !== 1 ? "s" : ""} {"\u00B7"} {e}{"\u2013"}{e + bucketSize}
                       </div>
                     )}
                     <div style={{width:"100%",background:count > 0 ? getTierColor(e + bucketSize/2) : "transparent",borderRadius:"3px 3px 0 0",height:h,opacity:isHovered ? 1 : 0.7,transition:"height 0.3s, opacity 0.15s"}} />
@@ -690,10 +1000,10 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
               <span style={{color:"#6b6b80",fontSize:9}}>1000</span>
             </div>
             <div style={{display:"flex",gap:6,justifyContent:"center",marginTop:10,flexWrap:"wrap"}}>
-              {tierRanges.map(t => {
+              {TIER_RANGES.map(t => {
                 const count = ranking.standings.filter(s => {
-                  const idx = tierRanges.indexOf(t);
-                  const upper = idx > 0 ? tierRanges[idx - 1].min : 1001;
+                  const idx = TIER_RANGES.indexOf(t);
+                  const upper = idx > 0 ? TIER_RANGES[idx - 1].min : 1001;
                   return s.elo >= t.min && s.elo < upper;
                 }).length;
                 return (
@@ -708,6 +1018,107 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
         );
       })()}
       </div>
+
+          {/* === Confidence Score === */}
+          {confidenceData && (
+            <div ref={cardRef("breakdown",2)} style={{...cardStyle,marginTop:16}}>
+              <div style={headStyle}>confidence</div>
+              <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
+                {/* Gauge */}
+                <div style={{textAlign:"center",minWidth:120}}>
+                  <div style={{position:"relative",width:100,height:100,margin:"0 auto"}}>
+                    <svg viewBox="0 0 100 100" style={{width:100,height:100}}>
+                      <circle cx="50" cy="50" r="42" fill="none" stroke="#1e1e35" strokeWidth="8" />
+                      <circle cx="50" cy="50" r="42" fill="none"
+                        stroke={confidenceData.score >= 70 ? "#22c55e" : confidenceData.score >= 40 ? "#f59e0b" : "#ef4444"}
+                        strokeWidth="8" strokeLinecap="round"
+                        strokeDasharray={`${confidenceData.score * 2.64} 264`}
+                        transform="rotate(-90 50 50)" />
+                    </svg>
+                    <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center"}}>
+                      <div style={{color:"#e2e8f0",fontSize:22,fontWeight:700}}>{confidenceData.score}</div>
+                      <div style={{color:"#6b6b80",fontSize:8,textTransform:"uppercase"}}>of 100</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Per-genre confidence */}
+                <div style={{flex:1,minWidth:180}}>
+                  <div style={{color:"#9a9ab0",fontSize:10,fontWeight:600,marginBottom:6,textTransform:"uppercase"}}>by genre</div>
+                  {confidenceData.genreConfidence.slice(0, 8).map(g => (
+                    <div key={g.genre} style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                      <span style={{color:"#e2e8f0",fontSize:11,minWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.genre}</span>
+                      <div style={{flex:1,height:8,background:"#1e1e35",borderRadius:4,overflow:"hidden"}}>
+                        <div style={{width:g.confidence+"%",height:"100%",background:g.confidence >= 70 ? "#22c55e" : g.confidence >= 40 ? "#f59e0b" : "#ef4444",borderRadius:4}} />
+                      </div>
+                      <span style={{color:"#6b6b80",fontSize:9,minWidth:24,textAlign:"right"}}>{g.confidence}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Most / Least Confident */}
+              <div style={{display:"flex",gap:16,marginTop:14,flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:180}}>
+                  <div style={{color:"#ef4444",fontSize:10,fontWeight:600,marginBottom:6,textTransform:"uppercase"}}>least confident</div>
+                  {confidenceData.leastConfident.map(s => (
+                    <div key={s.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+                      <span style={{color:"#e2e8f0",fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{s.title}</span>
+                      <span style={{color:"#ef4444",fontSize:10,fontWeight:600,flexShrink:0,marginLeft:8}}>{"\u00B1"}{Math.round(s.variance / 10)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{flex:1,minWidth:180}}>
+                  <div style={{color:"#22c55e",fontSize:10,fontWeight:600,marginBottom:6,textTransform:"uppercase"}}>most confident</div>
+                  {confidenceData.mostConfident.map(s => (
+                    <div key={s.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+                      <span style={{color:"#e2e8f0",fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{s.title}</span>
+                      <span style={{color:"#22c55e",fontSize:10,fontWeight:600,flexShrink:0,marginLeft:8}}>{"\u00B1"}{Math.round(s.variance / 10)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* === Weakness Mapping === */}
+          {weaknessData && (
+            <div ref={cardRef("breakdown",3)} style={{...cardStyle,marginTop:16}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <div style={headStyle}>weakness mapping</div>
+                <span style={{color:"#6b7280",fontSize:11}}>avg <span style={{color:"#818cf8",fontWeight:600}}>{weaknessData.overallAvg}</span></span>
+              </div>
+
+              {/* Weak genres */}
+              {weaknessData.weakGenres.length > 0 && (
+                <div style={{marginBottom:12}}>
+                  <div style={{color:"#f59e0b",fontSize:10,fontWeight:600,marginBottom:6,textTransform:"uppercase"}}>weak genres</div>
+                  {weaknessData.weakGenres.map(g => (
+                    <div key={g.genre} style={{display:"flex",alignItems:"center",gap:8,marginBottom:5}}>
+                      <span style={{color:"#e2e8f0",fontSize:11,minWidth:70,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.genre}</span>
+                      <div style={{flex:1,height:8,background:"#1e1e35",borderRadius:4,overflow:"hidden",direction:"rtl"}}>
+                        <div style={{width:Math.min(100, g.deficit / 2)+"%",height:"100%",background:"#ef4444",borderRadius:4,opacity:0.7}} />
+                      </div>
+                      <span style={{color:"#ef4444",fontSize:9,minWidth:30,textAlign:"right"}}>-{g.deficit}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Bottom 5 songs */}
+              <div>
+                <div style={{color:"#ef4444",fontSize:10,fontWeight:600,marginBottom:6,textTransform:"uppercase"}}>bottom 5</div>
+                {weaknessData.bottom5.map((s, i) => (
+                  <div key={s.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                    <span style={{color:"#5a5a70",fontSize:10,fontWeight:700,minWidth:16,textAlign:"right"}}>{i + 1}</span>
+                    <span style={{color:"#e2e8f0",fontSize:11,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.title}</span>
+                    <span style={{color:getTier(s.elo).color,fontSize:10,fontWeight:600}}>{s.elo}</span>
+                    <span style={{color:"#5a5a70",fontSize:9}}>{s.wins}W {s.losses}L</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           </div>
 
         {/* ===== LISTENING TAB ===== */}
@@ -730,7 +1141,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
 
         if (entries.length === 0) return (
           <div style={{...cardStyle,textAlign:"center",padding:40}}>
-            <span style={{fontSize:32}}>🎧</span>
+            <span style={{fontSize:32}}>{"\u{1F3A7}"}</span>
             <p style={{color:"#6b6b80",fontSize:14,marginTop:12}}>No listening data yet</p>
             <p style={{color:"#5a5a70",fontSize:12}}>Play songs in the app to start tracking</p>
           </div>
@@ -738,7 +1149,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
 
         return (
           <div>
-            <div style={{...cardStyle,marginBottom:16}}>
+            <div ref={cardRef("listening",0)} style={{...cardStyle,marginBottom:16}}>
               <div style={headStyle}>overview</div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
                 {[
@@ -755,7 +1166,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
             </div>
 
             <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
-              <div style={{...cardStyle,flex:"1 1 280px",minWidth:220}}>
+              <div ref={cardRef("listening",1)} style={{...cardStyle,flex:"1 1 280px",minWidth:220}}>
                 <div style={headStyle}>most listened</div>
                 {topListened.slice(0, 10).map(({ song, time }, i) => (
                   <div key={song.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
@@ -774,7 +1185,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
               </div>
 
               {genreTimeSorted.length > 1 && (
-                <div style={{...cardStyle,flex:"1 1 220px",minWidth:180}}>
+                <div ref={cardRef("listening",2)} style={{...cardStyle,flex:"1 1 220px",minWidth:180}}>
                   <div style={headStyle}>time by genre</div>
                   {genreTimeSorted.slice(0, 10).map(([g, time]) => (
                     <div key={g} style={{marginBottom:6}}>
@@ -789,11 +1200,168 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
                   ))}
                 </div>
               )}
+
+              {/* Per-song listening by genre */}
+              {genreTimeSorted.length > 1 && (() => {
+                const genreSongCount = {};
+                topListened.forEach(({ song }) => {
+                  const g = song.genre || "untagged";
+                  genreSongCount[g] = (genreSongCount[g] || 0) + 1;
+                });
+                const perSong = genreTimeSorted
+                  .map(([g, time]) => ({ genre: g, perSong: time / (genreSongCount[g] || 1) }))
+                  .sort((a, b) => b.perSong - a.perSong);
+                const maxPerSong = perSong[0]?.perSong || 1;
+                return (
+                  <div ref={cardRef("listening",3)} style={{...cardStyle,flex:"1 1 220px",minWidth:180}}>
+                    <div style={headStyle}>most replayed genres</div>
+                    {perSong.slice(0, 10).map(g => (
+                      <div key={g.genre} style={{marginBottom:6}}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                          <span style={{color:"#e2e8f0",fontSize:11}}>{g.genre}</span>
+                          <span style={{color:"#6b6b80",fontSize:10}}>{formatDuration(Math.round(g.perSong))}/track</span>
+                        </div>
+                        <div style={{height:3,background:"#1e1e35",borderRadius:2,overflow:"hidden",width:"80%"}}>
+                          <div style={{width:(g.perSong/maxPerSong*100)+"%",height:"100%",background:stats.genreColorMap[g.genre]||"#818cf8",borderRadius:2,opacity:0.7}} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         );
       })()}
           </div>
+
+        {/* ===== GROWTH TAB ===== */}
+        <div style={{display: statsSubTab === "growth" ? "block" : "none"}}>
+          {creativeStreaks ? (
+            <div>
+              {/* Month Grid Calendar */}
+              <div ref={cardRef("growth",0)} style={{...cardStyle,marginBottom:16}}>
+                <div style={headStyle}>monthly output</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(56px,1fr))",gap:4}}>
+                  {creativeStreaks.months.map(m => {
+                    const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+                    const bg = m.count === 0 ? "#1e1e35" : m.avgElo >= creativeStreaks.overallAvg ? `rgba(34,197,94,${Math.min(0.7, 0.2 + (m.avgElo - creativeStreaks.overallAvg) / 300)})` : `rgba(239,68,68,${Math.min(0.7, 0.2 + (creativeStreaks.overallAvg - m.avgElo) / 300)})`;
+                    return (
+                      <div key={m.key} title={`${monthNames[m.month]} ${m.year}: ${m.count} song${m.count !== 1 ? "s" : ""}${m.avgElo !== null ? ", avg " + m.avgElo : ""}`}
+                        style={{background:bg,borderRadius:6,padding:"6px 4px",textAlign:"center",minHeight:40,display:"flex",flexDirection:"column",justifyContent:"center"}}>
+                        <div style={{color:"#9a9ab0",fontSize:8}}>{monthNames[m.month]} {String(m.year).slice(2)}</div>
+                        <div style={{color:m.count > 0 ? "#e2e8f0" : "#5a5a70",fontSize:13,fontWeight:700}}>{m.count || "-"}</div>
+                        {m.avgElo !== null && <div style={{color:"#9a9ab0",fontSize:8}}>{m.avgElo}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Hot & Cold Streaks Side by Side */}
+              <div ref={cardRef("growth",1)} style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+                <div style={{...cardStyle,flex:"1 1 240px",minWidth:200}}>
+                  <div style={{color:"#22c55e",fontSize:10,fontWeight:600,marginBottom:8,textTransform:"uppercase"}}>
+                    hot streaks ({creativeStreaks.hotStreaks.length})
+                  </div>
+                  {creativeStreaks.hotStreaks.length === 0 && (
+                    <div style={{color:"#5a5a70",fontSize:11}}>No hot streaks yet</div>
+                  )}
+                  {creativeStreaks.hotStreaks.map((streak, si) => (
+                    <div key={si} style={{background:"#22c55e08",border:"1px solid #22c55e20",borderRadius:8,padding:"8px 12px",marginBottom:6}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                        <span style={{color:"#22c55e",fontSize:10,fontWeight:600}}>{streak.songs.length} songs, avg {streak.avgElo}</span>
+                        <span style={{color:"#5a5a70",fontSize:9}}>{new Date(streak.startDate).toLocaleDateString("en",{month:"short",year:"numeric"})} {"\u2013"} {new Date(streak.endDate).toLocaleDateString("en",{month:"short",year:"numeric"})}</span>
+                      </div>
+                      {streak.songs.map(s => (
+                        <div key={s.id} style={{color:"#e2e8f0",fontSize:10,marginBottom:1}}>{s.title} <span style={{color:"#22c55e"}}>{s.elo}</span></div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+                <div style={{...cardStyle,flex:"1 1 240px",minWidth:200}}>
+                  <div style={{color:"#ef4444",fontSize:10,fontWeight:600,marginBottom:8,textTransform:"uppercase"}}>
+                    cold streaks ({creativeStreaks.coldStreaks.length})
+                  </div>
+                  {creativeStreaks.coldStreaks.length === 0 && (
+                    <div style={{color:"#5a5a70",fontSize:11}}>No cold streaks yet</div>
+                  )}
+                  {creativeStreaks.coldStreaks.map((streak, si) => (
+                    <div key={si} style={{background:"#ef444408",border:"1px solid #ef444420",borderRadius:8,padding:"8px 12px",marginBottom:6}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                        <span style={{color:"#ef4444",fontSize:10,fontWeight:600}}>{streak.songs.length} songs, avg {streak.avgElo}</span>
+                        <span style={{color:"#5a5a70",fontSize:9}}>{new Date(streak.startDate).toLocaleDateString("en",{month:"short",year:"numeric"})} {"\u2013"} {new Date(streak.endDate).toLocaleDateString("en",{month:"short",year:"numeric"})}</span>
+                      </div>
+                      {streak.songs.map(s => (
+                        <div key={s.id} style={{color:"#e2e8f0",fontSize:10,marginBottom:1}}>{s.title} <span style={{color:"#ef4444"}}>{s.elo}</span></div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{...cardStyle,textAlign:"center",padding:40}}>
+              <p style={{color:"#6b6b80",fontSize:14}}>Need at least 5 ranked songs with dates for growth analysis</p>
+            </div>
+          )}
+        </div>
+
+        {/* ===== PORTFOLIO TAB ===== */}
+        <div style={{display: statsSubTab === "portfolio" ? "block" : "none"}}>
+          {autoAlbums ? (
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:16}}>
+              {autoAlbums.map((album, ai) => (
+                <div key={album.id} ref={cardRef("portfolio",ai)} style={{...cardStyle,display:"flex",flexDirection:"column"}}>
+                  <div style={{marginBottom:10}}>
+                    <div style={{color:"#e2e8f0",fontSize:14,fontWeight:600}}>{album.title}</div>
+                    <div style={{color:"#6b7280",fontSize:11}}>{album.desc}</div>
+                  </div>
+                  {album.songs.length === 0 ? (
+                    <div style={{color:"#5a5a70",fontSize:11,padding:"12px 0",textAlign:"center",flex:1}}>No songs match</div>
+                  ) : (
+                    <div style={{flex:1,marginBottom:10,maxHeight:260,overflowY:"auto"}}>
+                      {album.songs.map((s, i) => {
+                        const tier = getTier(s.elo);
+                        return (
+                          <div key={s.id} style={{display:"flex",alignItems:"center",gap:6,padding:"3px 0",borderBottom:"1px solid #1e1e3530"}}>
+                            <span style={{color:"#5a5a70",fontSize:9,fontWeight:700,minWidth:16,textAlign:"right"}}>{i + 1}</span>
+                            <span style={{background:tier.color+"20",color:tier.color,padding:"1px 5px",borderRadius:4,fontSize:8,fontWeight:700}}>{tier.label}</span>
+                            <span style={{color:"#e2e8f0",fontSize:11,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.title}</span>
+                            <span style={{color:"#818cf8",fontSize:9,fontWeight:600}}>{s.elo}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {album.songs.length > 0 && (
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={() => saveAlbumAsPlaylist(album)} disabled={portfolioSaving}
+                        style={{flex:1,padding:"7px",borderRadius:8,background:"#22c55e",border:"none",color:"#000",fontSize:11,fontWeight:600,cursor:portfolioSaving?"wait":"pointer",opacity:portfolioSaving?0.6:1}}>
+                        Save as Playlist
+                      </button>
+                      <button onClick={() => {
+                        const playable = album.songs.filter(s => s.audioFile);
+                        if (playable.length === 0) return;
+                        setPlayerQueue(playable);
+                        setPlayerQueueIdx(0);
+                        chartAudio.play(playable[0].audioFile);
+                        switchTab("player");
+                      }}
+                        style={{padding:"7px 14px",borderRadius:8,background:"#4338ca10",border:"1px solid #4338ca50",color:"#818cf8",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                        Play
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{...cardStyle,textAlign:"center",padding:40}}>
+              <p style={{color:"#6b6b80",fontSize:14}}>Need at least 3 ranked songs for auto albums</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

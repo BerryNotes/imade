@@ -6,7 +6,7 @@ import ScrollToTop from '../components/ScrollToTop';
 import { useRanking } from '../hooks/useRanking';
 import api from '../api';
 
-function RankingsTab({ songs, comparisons, onRefresh, showToast, lastUpdateCompCount, setLastUpdateCompCount, setPlayerQueue, setPlayerQueueIdx, switchTab, showVariance, showWinLoss, rowDensity }) {
+function RankingsTab({ songs, comparisons, onRefresh, showToast, lastUpdateCompCount, setLastUpdateCompCount, setPlayerQueue, setPlayerQueueIdx, switchTab, showVariance, showWinLoss, rowDensity, stickyTop }) {
   const ranking = useRanking(songs, comparisons);
   const tournament = ranking;
   const [filterGenre, setFilterGenre] = useState("All");
@@ -222,7 +222,7 @@ function RankingsTab({ songs, comparisons, onRefresh, showToast, lastUpdateCompC
 
       <div style={{display:"flex",gap:16,alignItems:"flex-start"}}>
         {/* Sidebar */}
-        <div style={{position:"sticky",top:80,width:170,flexShrink:0,display:"flex",flexDirection:"column",gap:10,paddingTop:8,zIndex:10}}>
+        <div style={{position:"sticky",top:(stickyTop||0)+40,width:170,flexShrink:0,display:"flex",flexDirection:"column",gap:10,paddingTop:8,zIndex:10}}>
           <div style={{position:"relative"}}>
             <span style={{position:"absolute",left:10,top:10,color:"#6b6b80",fontSize:12,pointerEvents:"none",zIndex:1}}>⌕</span>
             <input value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="search..."

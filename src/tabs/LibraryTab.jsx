@@ -77,7 +77,7 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
   return (
     <div style={{display:"flex",gap:16,alignItems:"flex-start"}}>
       {/* Sidebar — always visible on the left */}
-      <div style={{position:"sticky",top:(stickyTop||0)+8,width:170,flexShrink:0,display:"flex",flexDirection:"column",gap:10,paddingTop:8,zIndex:10}}>
+      <div style={{position:"sticky",top:(stickyTop||0)+40,width:170,flexShrink:0,display:"flex",flexDirection:"column",gap:10,paddingTop:8,zIndex:10}}>
         <div style={{position:"relative"}}>
           <span style={{position:"absolute",left:10,top:10,color:"#6b6b80",fontSize:12,pointerEvents:"none",zIndex:1}}>⌕</span>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="search..."

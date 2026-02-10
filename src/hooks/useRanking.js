@@ -161,6 +161,33 @@ function getRefinementPair(standings, compMap, genre, compCount) {
   const avgComps = totalComps / sorted.length || 1;
   const compCap = avgComps * 2.5;
 
+  // 30% chance: prioritize under-compared songs
+  if (Math.random() < 0.3) {
+    const withCounts = sorted.map(s => ({ song: s, comps: compCount[s.id] || 0 }));
+    const minComps = Math.min(...withCounts.map(w => w.comps));
+    // Weight by inverse comparison count — fewer comps = higher weight
+    const weights = withCounts.map(w => 1 / (1 + w.comps - minComps));
+    const totalW = weights.reduce((a, b) => a + b, 0);
+    let roll = Math.random() * totalW;
+    let picked = withCounts[0];
+    for (let i = 0; i < weights.length; i++) {
+      roll -= weights[i];
+      if (roll <= 0) { picked = withCounts[i]; break; }
+    }
+    // Find a nearby uncompared opponent
+    const pickedIdx = sorted.indexOf(picked.song);
+    const searchRange = Math.max(10, Math.floor(sorted.length * 0.15));
+    let bestOpp = null, bestDist = Infinity;
+    for (let i = Math.max(0, pickedIdx - searchRange); i < Math.min(sorted.length, pickedIdx + searchRange); i++) {
+      if (i === pickedIdx) continue;
+      const key = [picked.song.id, sorted[i].id].sort().join("|");
+      if (compMap[key]) continue;
+      const dist = Math.abs(picked.song.elo - sorted[i].elo);
+      if (dist < bestDist) { bestDist = dist; bestOpp = sorted[i]; }
+    }
+    if (bestOpp) return [picked.song, bestOpp];
+  }
+
   const adjacentUncompared = [];
   for (let i = 0; i < sorted.length - 1; i++) {
     const key = [sorted[i].id, sorted[i+1].id].sort().join("|");
