@@ -215,12 +215,14 @@ app.get("/api/comparisons", (req, res) => res.json(readJSON(COMPARISONS_FILE)));
 
 app.post("/api/comparisons", (req, res) => {
   const comps = readJSON(COMPARISONS_FILE);
-  const { songA, songB, winner } = req.body;
+  const { songA, songB, winner, source } = req.body;
   if (!songA || !songB || !winner) return res.status(400).json({ error: "Missing fields" });
   const filtered = comps.filter(
     (c) => !((c.songA === songA && c.songB === songB) || (c.songA === songB && c.songB === songA))
   );
-  filtered.push({ songA, songB, winner, timestamp: Date.now() });
+  const entry = { songA, songB, winner, timestamp: Date.now() };
+  if (source) entry.source = source;
+  filtered.push(entry);
   writeJSON(COMPARISONS_FILE, filtered);
   res.json(filtered);
 });

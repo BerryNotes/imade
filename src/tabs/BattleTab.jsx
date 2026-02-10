@@ -146,8 +146,11 @@ function BattleTab({ songs, comparisons, onRefresh, showToast, savedPair, setSav
     setFocusedSongIds(null);
     focusedRefineTarget.current = refineTarget;
     sessionHadUnranked.current = unrankedCount > 0;
-    if (unrankedCount > 0) {
+    if (unrankedCount >= 2) {
       setSessionPhase("tier");
+    } else if (unrankedCount === 1) {
+      // Skip tier mode for a single song — tier needs at least 2 to generate pairs
+      setSessionPhase("quick");
     } else {
       setSessionPhase("refine");
     }
