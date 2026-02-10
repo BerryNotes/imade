@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, createContext, useContext } from 'react';
 
-const AudioContext = createContext();
+const AudioCtx = createContext();
 
 function AudioProvider({ children }) {
   const audioRef = useRef(null);
@@ -97,8 +97,40 @@ function AudioProvider({ children }) {
   }, []);
 
   const onEndedRef = useRef(null);
+  const webAudioCtxRef = useRef(null);
+  const sourceNodeRef = useRef(null);
+  const analyserRef = useRef(null);
 
   const setOnEnded = useCallback((fn) => { onEndedRef.current = fn; }, []);
+
+  const resumeAudioContext = useCallback(() => {
+    if (webAudioCtxRef.current && webAudioCtxRef.current.state === 'suspended') {
+      webAudioCtxRef.current.resume();
+    }
+  }, []);
+
+  const getAnalyser = useCallback(() => {
+    const el = audioRef.current;
+    if (!el) return null;
+    if (analyserRef.current) {
+      resumeAudioContext();
+      return analyserRef.current;
+    }
+    const WACtx = window.AudioContext || window.webkitAudioContext;
+    if (!WACtx) return null;
+    const ctx = new WACtx();
+    webAudioCtxRef.current = ctx;
+    const source = ctx.createMediaElementSource(el);
+    sourceNodeRef.current = source;
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.92;
+    source.connect(analyser);
+    analyser.connect(ctx.destination);
+    analyserRef.current = analyser;
+    if (ctx.state === 'suspended') ctx.resume();
+    return analyser;
+  }, [resumeAudioContext]);
 
   const audioEl = React.createElement("audio", {
     ref: audioRef,
@@ -109,10 +141,10 @@ function AudioProvider({ children }) {
     style: { display: "none" },
   });
 
-  const value = { play, pause, toggle, seek, skip, stop, subscribe, playingSrc, currentTime, duration, isPlaying, setOnEnded, getSnapshot, volume, setVolume };
-  return React.createElement(AudioContext.Provider, { value }, audioEl, children);
+  const value = { play, pause, toggle, seek, skip, stop, subscribe, playingSrc, currentTime, duration, isPlaying, setOnEnded, getSnapshot, volume, setVolume, getAnalyser, resumeAudioContext };
+  return React.createElement(AudioCtx.Provider, { value }, audioEl, children);
 }
 
-function useGlobalAudio() { return useContext(AudioContext); }
+function useGlobalAudio() { return useContext(AudioCtx); }
 
-export { AudioContext, AudioProvider, useGlobalAudio };
+export { AudioCtx as AudioContext, AudioProvider, useGlobalAudio };

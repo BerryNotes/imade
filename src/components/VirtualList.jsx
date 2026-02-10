@@ -5,6 +5,12 @@ function VirtualList({ items, rowHeight, renderRow, overScan, gap }) {
   const os = overScan || 4;
   const g = gap || 6;
   const [visibleRange, setVisibleRange] = useState({ start: 0, end: 20 });
+  const justMounted = useRef(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => { justMounted.current = false; }, 600);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     const update = () => {
@@ -31,7 +37,17 @@ function VirtualList({ items, rowHeight, renderRow, overScan, gap }) {
   return (
     <div ref={containerRef} style={{position:"relative",height:totalHeight}}>
       <div style={{position:"absolute",top:offsetY,left:0,right:0,display:"flex",flexDirection:"column",gap:g}}>
-        {visibleItems.map((item, i) => renderRow(item, visibleRange.start + i))}
+        {visibleItems.map((item, i) => {
+          const idx = visibleRange.start + i;
+          const staggerStyle = justMounted.current && idx < 10
+            ? {animation:"staggerFadeIn 0.25s ease-out both", animationDelay:(idx * 30)+"ms"}
+            : undefined;
+          return (
+            <div key={item.id || idx} style={staggerStyle}>
+              {renderRow(item, idx)}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

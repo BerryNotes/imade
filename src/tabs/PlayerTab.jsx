@@ -11,6 +11,15 @@ function PlayerTab({ songs, genres, comparisons, onRefresh, showToast, queue, se
   const genreBoxRef = useRef(null);
   const ranking = useRanking(songs, comparisons);
 
+  // Progress bar hooks (must be top-level, not inside IIFEs)
+  const scrubRef = useRef(null);
+  const [dragging, setDragging] = useState(false);
+  const [hovered, setHovered] = useState(false);
+
+  // Volume slider hooks
+  const volRef = useRef(null);
+  const [volDrag, setVolDrag] = useState(false);
+
   // Click outside to close genre picker
   useEffect(() => {
     if (!editingGenre) return;
@@ -60,16 +69,46 @@ function PlayerTab({ songs, genres, comparisons, onRefresh, showToast, queue, se
   const snapshot = currentSong && !isCurrent ? getSnapshot(currentSong.audioFile) : null;
   const displayTime = isCurrent ? currentTime : (snapshot ? snapshot.time : 0);
   const displayDur = isCurrent ? duration : (snapshot ? snapshot.duration : 0);
+  const pct = displayDur > 0 ? (displayTime / displayDur * 100) : 0;
+
+  // Progress bar drag
+  const seekTo = (e) => {
+    if (!scrubRef.current) return;
+    const rect = scrubRef.current.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, ((e.clientX || e.pageX) - rect.left) / rect.width));
+    const d = isCurrent ? duration : (snapshot ? snapshot.duration : 0);
+    if (!isCurrent && currentSong) play(currentSong.audioFile);
+    if (d > 0) seek(d * ratio);
+  };
 
   useEffect(() => {
-    setOnEnded(() => {
-      if (loop === "one" && currentSong) { play(currentSong.audioFile); return; }
-      if (queueIdx < queue.length - 1) {
-        const next = queueIdx + 1; setQueueIdx(next); play(queue[next].audioFile);
-      } else if (loop === "all" && queue.length > 0) { setQueueIdx(0); play(queue[0].audioFile); }
-    });
-    return () => setOnEnded(null);
-  }, [queueIdx, queue, loop, currentSong, play, setOnEnded]);
+    if (!dragging) return;
+    const onMove = (e) => { e.preventDefault(); seekTo(e.touches ? e.touches[0] : e); };
+    const onUp = () => setDragging(false);
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    document.addEventListener("touchmove", onMove);
+    document.addEventListener("touchend", onUp);
+    return () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); document.removeEventListener("touchmove", onMove); document.removeEventListener("touchend", onUp); };
+  }, [dragging]);
+
+  // Volume drag
+  const setVol = (e) => {
+    if (!volRef.current) return;
+    const rect = volRef.current.getBoundingClientRect();
+    setVolume(Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)));
+  };
+
+  useEffect(() => {
+    if (!volDrag) return;
+    const onMove = (e) => { e.preventDefault(); setVol(e); };
+    const onUp = () => setVolDrag(false);
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    return () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
+  }, [volDrag]);
+
+  // onEnded is now managed in App.jsx so it persists across tab switches
 
   const toggleShuffle = () => {
     const newShuffle = !shuffle; setShuffle(newShuffle);
@@ -100,14 +139,11 @@ function PlayerTab({ songs, genres, comparisons, onRefresh, showToast, queue, se
 
   const rateSong = async (delta) => {
     if (!currentSong) return;
-    // Use the ranking-derived Elo (which accounts for comparisons), not raw song data
     const standing = ranking.standings.find(s => s.id === currentSong.id);
     const currentElo = standing ? standing.elo : (currentSong.baseElo != null ? currentSong.baseElo : 500);
-    // Position-based dampening: liking top song or disliking bottom song has no effect at extremes
-    const distFromCenter = Math.abs(currentElo - 500) / 500; // 0 at center, 1 at extremes
-    // If liking and already high, or disliking and already low, dampen completely at extremes
+    const distFromCenter = Math.abs(currentElo - 500) / 500;
     const isReinforcing = (delta > 0 && currentElo > 500) || (delta < 0 && currentElo < 500);
-    const dampening = isReinforcing ? (1 - distFromCenter) : 1; // 1.0 at center, 0 at extremes for reinforcing
+    const dampening = isReinforcing ? (1 - distFromCenter) : 1;
     const adjustedDelta = Math.round(delta * dampening);
     if (adjustedDelta === 0) {
       showToast(delta > 0 ? "Already at top" : "Already at bottom");
@@ -134,6 +170,16 @@ function PlayerTab({ songs, genres, comparisons, onRefresh, showToast, queue, se
   if (playable.length === 0) return (
     <div style={{textAlign:"center",padding:80}}>
       <p style={{color:"#8a8aa0",fontSize:18}}>No songs with audio files in your library</p>
+    </div>
+  );
+
+  const idle = !playingSrc && !isCurrent;
+
+  if (idle) return (
+    <div style={{textAlign:"center",padding:80}}>
+      <div style={{fontSize:48,opacity:0.2,lineHeight:1,marginBottom:16}}>{"\u266A"}</div>
+      <p style={{color:"#6b6b80",fontSize:15}}>No song playing</p>
+      <p style={{color:"#5a5a70",fontSize:12,marginTop:4}}>Play a song from the library to get started</p>
     </div>
   );
 
@@ -175,52 +221,24 @@ function PlayerTab({ songs, genres, comparisons, onRefresh, showToast, queue, se
 
       {/* Progress bar */}
       <div style={{marginBottom:20,padding:"0 20px"}}>
-        {(() => {
-          const pct = displayDur > 0 ? (displayTime / displayDur * 100) : 0;
-          const scrubRef = React.useRef(null);
-          const [dragging, setDragging] = React.useState(false);
-          const [hovered, setHovered] = React.useState(false);
-
-          const seekTo = (e) => {
-            const rect = scrubRef.current.getBoundingClientRect();
-            const ratio = Math.max(0, Math.min(1, ((e.clientX || e.pageX) - rect.left) / rect.width));
-            const d = isCurrent ? duration : (snapshot ? snapshot.duration : 0);
-            if (!isCurrent && currentSong) play(currentSong.audioFile);
-            if (d > 0) seek(d * ratio);
-          };
-
-          React.useEffect(() => {
-            if (!dragging) return;
-            const onMove = (e) => { e.preventDefault(); seekTo(e.touches ? e.touches[0] : e); };
-            const onUp = () => setDragging(false);
-            document.addEventListener("mousemove", onMove);
-            document.addEventListener("mouseup", onUp);
-            document.addEventListener("touchmove", onMove);
-            document.addEventListener("touchend", onUp);
-            return () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); document.removeEventListener("touchmove", onMove); document.removeEventListener("touchend", onUp); };
-          }, [dragging]);
-
-          return (
-            <div ref={scrubRef}
-              onMouseDown={(e) => { seekTo(e); setDragging(true); }}
-              onTouchStart={(e) => { seekTo(e.touches[0]); setDragging(true); }}
-              onMouseEnter={() => setHovered(true)}
-              onMouseLeave={() => { if (!dragging) setHovered(false); }}
-              style={{height:28,cursor:"pointer",position:"relative",display:"flex",alignItems:"center",touchAction:"none"}}>
-              <div style={{position:"absolute",left:0,right:0,height: hovered||dragging ? 6 : 4,background:"#1a1a2e",borderRadius:3,transition:"height 0.15s"}} />
-              <div style={{position:"absolute",left:0,width:pct+"%",height: hovered||dragging ? 6 : 4,background:"linear-gradient(90deg,#4338ca,#818cf8)",borderRadius:3,transition: dragging ? "none" : "height 0.15s, width 0.1s"}} />
-              <div style={{
-                position:"absolute",left:"calc("+pct+"% - 7px)",
-                width:14,height:14,borderRadius:"50%",
-                background:"#818cf8",boxShadow:"0 0 8px rgba(129,140,248,0.4)",
-                opacity: hovered||dragging ? 1 : 0,
-                transform: dragging ? "scale(1.2)" : "scale(1)",
-                transition: dragging ? "none" : "opacity 0.15s, transform 0.15s",
-                pointerEvents:"none",
-              }} />
-            </div>
-          );
-        })()}
+        <div ref={scrubRef}
+          onMouseDown={(e) => { seekTo(e); setDragging(true); }}
+          onTouchStart={(e) => { seekTo(e.touches[0]); setDragging(true); }}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => { if (!dragging) setHovered(false); }}
+          style={{height:28,cursor:"pointer",position:"relative",display:"flex",alignItems:"center",touchAction:"none"}}>
+          <div style={{position:"absolute",left:0,right:0,height: hovered||dragging ? 6 : 4,background:"#1a1a2e",borderRadius:3,transition:"height 0.15s"}} />
+          <div style={{position:"absolute",left:0,width:pct+"%",height: hovered||dragging ? 6 : 4,background:"linear-gradient(90deg,#4338ca,#818cf8)",borderRadius:3,transition: dragging ? "none" : "height 0.15s, width 0.1s"}} />
+          <div style={{
+            position:"absolute",left:"calc("+pct+"% - 7px)",
+            width:14,height:14,borderRadius:"50%",
+            background:"#818cf8",boxShadow:"0 0 8px rgba(129,140,248,0.4)",
+            opacity: hovered||dragging ? 1 : 0,
+            transform: dragging ? "scale(1.2)" : "scale(1)",
+            transition: dragging ? "none" : "opacity 0.15s, transform 0.15s",
+            pointerEvents:"none",
+          }} />
+        </div>
         <div style={{display:"flex",justifyContent:"space-between",marginTop:0}}>
           <span style={{color:"#6b6b80",fontSize:10}}>{formatTime(displayTime)}</span>
           <span style={{color:"#6b6b80",fontSize:10}}>{formatTime(displayDur)}</span>
@@ -233,7 +251,11 @@ function PlayerTab({ songs, genres, comparisons, onRefresh, showToast, queue, se
         <button onClick={skipPrev} style={{background:"none",border:"none",color:"#e2e8f0",fontSize:22,cursor:"pointer",padding:4,display:"flex",alignItems:"center"}} title="Previous"><svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor"><rect x="2" y="3" width="2.5" height="12" rx="0.5"/><polygon points="15,3 15,15 5,9"/></svg></button>
         <button onClick={()=>skip(-10)} style={{background:"none",border:"none",color:"#9a9ab0",fontSize:14,cursor:"pointer",padding:4}} title="-10s">-10</button>
         <button onClick={()=>{ if (currentSong) toggle(currentSong.audioFile); else if (queue.length) { play(queue[0].audioFile); } }}
-          style={{background:"linear-gradient(135deg,#4338ca,#6366f1)",border:"none",borderRadius:"50%",width:56,height:56,color:"#fff",fontSize:24,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 2px 16px rgba(99,102,241,0.3)"}}>
+          style={{background:"linear-gradient(135deg,#4338ca,#6366f1)",border:"none",borderRadius:"50%",width:56,height:56,color:"#fff",fontSize:24,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 2px 16px rgba(99,102,241,0.3)",
+            transition:"transform 0.1s ease, box-shadow 0.15s ease"}}
+          onMouseDown={e=>e.currentTarget.style.transform="scale(0.95)"}
+          onMouseUp={e=>e.currentTarget.style.transform="scale(1)"}
+          onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
           {isCurrent && isPlaying ? React.createElement("svg",{width:24,height:24,viewBox:"0 0 24 24",fill:"currentColor"},React.createElement("rect",{x:"6",y:"4",width:"4",height:"16",rx:"1"}),React.createElement("rect",{x:"14",y:"4",width:"4",height:"16",rx:"1"})) : React.createElement("svg",{width:24,height:24,viewBox:"0 0 24 24",fill:"currentColor"},React.createElement("polygon",{points:"6,4 20,12 6,20"}))}
         </button>
         <button onClick={()=>skip(10)} style={{background:"none",border:"none",color:"#9a9ab0",fontSize:14,cursor:"pointer",padding:4}} title="+10s">+10</button>
@@ -244,43 +266,29 @@ function PlayerTab({ songs, genres, comparisons, onRefresh, showToast, queue, se
       </div>
 
       {/* Volume */}
-      {(() => {
-        const volRef = React.useRef(null);
-        const [volDrag, setVolDrag] = React.useState(false);
-        const setVol = (e) => {
-          const rect = volRef.current.getBoundingClientRect();
-          setVolume(Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)));
-        };
-        React.useEffect(() => {
-          if (!volDrag) return;
-          const onMove = (e) => { e.preventDefault(); setVol(e); };
-          const onUp = () => setVolDrag(false);
-          document.addEventListener("mousemove", onMove);
-          document.addEventListener("mouseup", onUp);
-          return () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
-        }, [volDrag]);
-        return (
-          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:20,padding:"0 40px"}}>
-            <span style={{color:volume===0?"#ef4444":"#6b6b80",fontSize:12,cursor:"pointer",width:16,textAlign:"center"}} onClick={()=>setVolume(volume===0?1:0)}>{volume===0?"\u2715":"\u266A"}</span>
-            <div ref={volRef} style={{flex:1,maxWidth:200,height:24,cursor:"pointer",position:"relative",display:"flex",alignItems:"center"}}
-              onMouseDown={(e)=>{setVol(e);setVolDrag(true)}}>
-              <div style={{position:"absolute",left:0,right:0,height:3,background:"#1a1a2e",borderRadius:2}} />
-              <div style={{position:"absolute",left:0,width:(volume*100)+"%",height:3,background:"#4338ca",borderRadius:2}} />
-              <div style={{position:"absolute",left:"calc("+(volume*100)+"% - 5px)",width:10,height:10,borderRadius:"50%",background:"#818cf8",boxShadow:"0 0 6px rgba(129,140,248,0.3)"}} />
-            </div>
-            <span style={{color:"#5a5a70",fontSize:9,minWidth:24,textAlign:"center"}}>{Math.round(volume*100)}</span>
-          </div>
-        );
-      })()}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:20,padding:"0 40px"}}>
+        <span style={{color:volume===0?"#ef4444":"#6b6b80",fontSize:12,cursor:"pointer",width:16,textAlign:"center"}} onClick={()=>setVolume(volume===0?1:0)}>{volume===0?"\u2715":"\u266A"}</span>
+        <div ref={volRef} style={{flex:1,maxWidth:200,height:24,cursor:"pointer",position:"relative",display:"flex",alignItems:"center"}}
+          onMouseDown={(e)=>{setVol(e);setVolDrag(true)}}>
+          <div style={{position:"absolute",left:0,right:0,height:3,background:"#1a1a2e",borderRadius:2}} />
+          <div style={{position:"absolute",left:0,width:(volume*100)+"%",height:3,background:"#4338ca",borderRadius:2}} />
+          <div style={{position:"absolute",left:"calc("+(volume*100)+"% - 5px)",width:10,height:10,borderRadius:"50%",background:"#818cf8",boxShadow:"0 0 6px rgba(129,140,248,0.3)"}} />
+        </div>
+        <span style={{color:"#5a5a70",fontSize:9,minWidth:24,textAlign:"center"}}>{Math.round(volume*100)}</span>
+      </div>
 
       {/* Like / Dislike */}
       <div style={{display:"flex",gap:10,justifyContent:"center",marginBottom:24}}>
-        <button onClick={()=>rateSong(-5)} style={{background:"none",border:"1px solid #2a2a45",borderRadius:10,padding:"10px 20px",color:"#6b7280",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}
-          onMouseEnter={e=>{e.currentTarget.style.borderColor="#ef4444";e.currentTarget.style.color="#ef4444"}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#2a2a45";e.currentTarget.style.color="#6b7280"}}>
+        <button onClick={()=>rateSong(-5)} style={{background:"none",border:"1px solid #2a2a45",borderRadius:10,padding:"10px 20px",color:"#6b7280",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
+            transition:"transform 0.1s ease, border-color 0.15s ease, color 0.15s ease"}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor="#ef4444";e.currentTarget.style.color="#ef4444"}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#2a2a45";e.currentTarget.style.color="#6b7280";e.currentTarget.style.transform="scale(1)"}}
+          onMouseDown={e=>e.currentTarget.style.transform="scale(0.95)"} onMouseUp={e=>e.currentTarget.style.transform="scale(1)"}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{transform:"scaleY(-1)"}}><path d="M7 10v12"/><path d="M15 5.88L14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88Z"/></svg>
         </button>
-        <button onClick={()=>rateSong(5)} style={{background:"none",border:"1px solid #2a2a45",borderRadius:10,padding:"10px 20px",color:"#6b7280",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}
-          onMouseEnter={e=>{e.currentTarget.style.borderColor="#22c55e";e.currentTarget.style.color="#22c55e"}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#2a2a45";e.currentTarget.style.color="#6b7280"}}>
+        <button onClick={()=>rateSong(5)} style={{background:"none",border:"1px solid #2a2a45",borderRadius:10,padding:"10px 20px",color:"#6b7280",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
+            transition:"transform 0.1s ease, border-color 0.15s ease, color 0.15s ease"}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor="#22c55e";e.currentTarget.style.color="#22c55e"}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#2a2a45";e.currentTarget.style.color="#6b7280";e.currentTarget.style.transform="scale(1)"}}
+          onMouseDown={e=>e.currentTarget.style.transform="scale(0.95)"} onMouseUp={e=>e.currentTarget.style.transform="scale(1)"}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 10v12"/><path d="M15 5.88L14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88Z"/></svg>
         </button>
       </div>

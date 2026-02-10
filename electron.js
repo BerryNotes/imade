@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs");
 
@@ -19,9 +19,11 @@ app.whenReady().then(() => {
       height: 800,
       title: "iMade",
       icon: path.join(__dirname, "build", "icon.png"),
+      frame: false,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
+        preload: path.join(__dirname, "preload.js"),
       },
     });
 
@@ -35,5 +37,15 @@ app.whenReady().then(() => {
     mainWindow.on("closed", () => (mainWindow = null));
   });
 });
+
+// Window control IPC handlers
+ipcMain.on("window-minimize", () => { if (mainWindow) mainWindow.minimize(); });
+ipcMain.on("window-maximize", () => {
+  if (mainWindow) {
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    else mainWindow.maximize();
+  }
+});
+ipcMain.on("window-close", () => { if (mainWindow) mainWindow.close(); });
 
 app.on("window-all-closed", () => app.quit());

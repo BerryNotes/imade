@@ -62,7 +62,7 @@ function AudioPlayer({ src, compact }) {
       <div ref={progRef} onPointerDown={onPointerDown}
         style={{flex:1,height:16,display:"flex",alignItems:"center",cursor:"pointer",position:"relative",minWidth:60,touchAction:"none"}}>
         <div style={{position:"absolute",left:0,right:0,height:6,background:"#2a2a3e",borderRadius:3}}>
-          <div style={{width:pct+"%",height:"100%",background:playing?"linear-gradient(90deg,#f59e0b,#fbbf24)":"linear-gradient(90deg,#818cf8,#a78bfa)",borderRadius:3}} />
+          <div style={{width:pct+"%",height:"100%",background:playing?"linear-gradient(90deg,#f59e0b,#fbbf24)":"linear-gradient(90deg,#818cf8,#a78bfa)",borderRadius:3,transition:"width 0.15s linear"}} />
         </div>
         <div style={{position:"absolute",left:"calc("+pct+"% - 7px)",width:14,height:14,borderRadius:"50%",background:playing?"#f59e0b":"#818cf8",boxShadow:playing?"0 0 6px rgba(245,158,11,0.5)":"0 0 6px rgba(129,140,248,0.5)",transition:draggingRef.current?"none":"left 0.1s linear"}} />
       </div>

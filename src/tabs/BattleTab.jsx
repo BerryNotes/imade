@@ -295,7 +295,11 @@ function BattleTab({ songs, comparisons, onRefresh, showToast, savedPair, setSav
             </p>
 
             <button onClick={startSession}
-              style={{padding:"14px 48px",borderRadius:14,background:"linear-gradient(135deg,#4338ca,#6366f1)",border:"none",color:"#fff",fontSize:16,fontWeight:700,cursor:"pointer",boxShadow:"0 4px 20px rgba(99,102,241,0.3)"}}>
+              style={{padding:"14px 48px",borderRadius:14,background:"linear-gradient(135deg,#4338ca,#6366f1)",border:"none",color:"#fff",fontSize:16,fontWeight:700,cursor:"pointer",boxShadow:"0 4px 20px rgba(99,102,241,0.3)",
+                transition:"transform 0.1s ease, box-shadow 0.15s ease"}}
+              onMouseDown={e=>e.currentTarget.style.transform="scale(0.97)"}
+              onMouseUp={e=>e.currentTarget.style.transform="scale(1)"}
+              onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
               Start Session
             </button>
           </div>
@@ -306,8 +310,8 @@ function BattleTab({ songs, comparisons, onRefresh, showToast, savedPair, setSav
               { label: "songs", value: songs.length, color: "#818cf8" },
               { label: "compared", value: comparisons.length, color: "#22c55e" },
               { label: "unranked", value: unrankedCount, color: unrankedCount > 0 ? "#f59e0b" : "#22c55e" },
-            ].map(s => (
-              <div key={s.label} style={{background:"#14142a",border:"1px solid #1e1e35",borderRadius:10,padding:"12px",textAlign:"center"}}>
+            ].map((s, i) => (
+              <div key={s.label} style={{background:"#14142a",border:"1px solid #1e1e35",borderRadius:10,padding:"12px",textAlign:"center",animation:"statPanelIn 0.3s ease-out both",animationDelay:(i*80)+"ms"}}>
                 <div style={{color:s.color,fontSize:20,fontWeight:700}}>{s.value}</div>
                 <div style={{color:"#6b6b80",fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em",marginTop:2}}>{s.label}</div>
               </div>

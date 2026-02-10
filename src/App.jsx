@@ -8,6 +8,7 @@ import StatsTab from './tabs/StatsTab';
 import SettingsTab from './tabs/SettingsTab';
 import PlayerTab from './tabs/PlayerTab';
 import PlaylistsTab from './tabs/PlaylistsTab';
+import VisualizerTab from './tabs/VisualizerTab';
 import api from './api';
 
 const BATCH_SIZE = 5;
@@ -109,6 +110,56 @@ function App() {
   }, []);
 
   const audio = useGlobalAudio();
+
+  // Global keyboard shortcuts: space=pause, left/right=skip songs
+  useEffect(() => {
+    const handler = (e) => {
+      // Only active on visualizer tab, and not when typing in inputs
+      if (tab !== 'visualizer') return;
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+      if (e.key === ' ') {
+        e.preventDefault();
+        if (audio.playingSrc) audio.toggle(audio.playingSrc);
+        else if (playerQueue.length > 0) audio.play(playerQueue[playerQueueIdx]?.audioFile);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        if (playerQueue.length > 0) {
+          const next = (playerQueueIdx + 1) % playerQueue.length;
+          setPlayerQueueIdx(next);
+          audio.play(playerQueue[next].audioFile);
+        }
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        if (playerQueue.length > 0) {
+          if (audio.currentTime > 3) { audio.seek(0); }
+          else {
+            const prev = (playerQueueIdx - 1 + playerQueue.length) % playerQueue.length;
+            setPlayerQueueIdx(prev);
+            audio.play(playerQueue[prev].audioFile);
+          }
+        }
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [audio, playerQueue, playerQueueIdx, tab]);
+
+  // Manage onEnded here so it persists across tab switches (not in PlayerTab which unmounts)
+  useEffect(() => {
+    const currentSong = playerQueue[playerQueueIdx] || null;
+    audio.setOnEnded(() => {
+      if (playerLoop === "one" && currentSong) { audio.play(currentSong.audioFile); return; }
+      if (playerQueueIdx < playerQueue.length - 1) {
+        const next = playerQueueIdx + 1;
+        setPlayerQueueIdx(next);
+        audio.play(playerQueue[next].audioFile);
+      } else if (playerLoop === "all" && playerQueue.length > 0) {
+        setPlayerQueueIdx(0);
+        audio.play(playerQueue[0].audioFile);
+      }
+    });
+  }, [playerQueueIdx, playerQueue, playerLoop, audio.play, audio.setOnEnded]);
+
   useEffect(() => {
     if (!audio.playingSrc) { lastTimeUpdateRef.current = { src: null, time: 0 }; return; }
     const srcKey = audio.playingSrc;
@@ -225,6 +276,7 @@ function App() {
   if (!loaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",color:"#6b7280"}}>Loading...</div>;
 
   const tabs = [
+    { id: "visualizer", label: "Visualizer" },
     { id: "library", label: "Library", count: songs.length },
     { id: "player", label: "Player" },
     { id: "upload", label: "Upload" },
@@ -239,6 +291,36 @@ function App() {
 
   return (
     <div style={{minHeight:"100vh"}}>
+      {/* Custom title bar */}
+      <div style={{
+        display:"flex", alignItems:"center", justifyContent:"space-between",
+        height:32, background:"#0c0a1a", borderBottom:"1px solid #1a1a2e",
+        WebkitAppRegion:"drag", userSelect:"none", position:"sticky", top:0, zIndex:100,
+        paddingLeft:12,
+      }}>
+        <span style={{fontSize:12,fontWeight:600,color:"#6b6b80",letterSpacing:"0.03em"}}>iMade</span>
+        <div style={{display:"flex",WebkitAppRegion:"no-drag",height:"100%"}}>
+          <button onClick={()=>window.electronAPI?.minimize()}
+            style={{width:46,height:"100%",background:"none",border:"none",color:"#6b6b80",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}
+            onMouseEnter={e=>e.currentTarget.style.background="#1e1e35"}
+            onMouseLeave={e=>e.currentTarget.style.background="none"}>
+            <svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg>
+          </button>
+          <button onClick={()=>window.electronAPI?.maximize()}
+            style={{width:46,height:"100%",background:"none",border:"none",color:"#6b6b80",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}
+            onMouseEnter={e=>e.currentTarget.style.background="#1e1e35"}
+            onMouseLeave={e=>e.currentTarget.style.background="none"}>
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1"><rect x="0.5" y="0.5" width="9" height="9"/></svg>
+          </button>
+          <button onClick={()=>window.electronAPI?.close()}
+            style={{width:46,height:"100%",background:"none",border:"none",color:"#6b6b80",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}
+            onMouseEnter={e=>{e.currentTarget.style.background="#e81123";e.currentTarget.style.color="#fff"}}
+            onMouseLeave={e=>{e.currentTarget.style.background="none";e.currentTarget.style.color="#6b6b80"}}>
+            <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" strokeWidth="1.2"><line x1="0" y1="0" x2="10" y2="10"/><line x1="10" y1="0" x2="0" y2="10"/></svg>
+          </button>
+        </div>
+      </div>
+
       {/* Global upload progress bar - visible from any tab */}
       {uploading && (
         <div style={{position:"fixed",top:0,left:0,right:0,zIndex:2000}}>
@@ -255,7 +337,7 @@ function App() {
       )}
 
       {/* Header */}
-      <div ref={headerRef} style={{position:"sticky",top:0,zIndex:20,background:"#13102a"}}>
+      <div ref={headerRef} style={{position:"sticky",top:32,zIndex:20,background:"#13102a"}}>
       <div style={{padding: uploading ? "80px 24px 0" : "32px 24px 0",maxWidth:1200,margin:"0 auto",transition:"padding 0.3s"}}>
         <div style={{display:"flex",alignItems:"baseline",gap:12,marginBottom:0}}>
           <h1 style={{margin:0,fontSize:"clamp(28px,6vw,40px)",fontWeight:700,background:"linear-gradient(135deg,#e2e8f0,#818cf8)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",letterSpacing:"-0.02em",lineHeight:1.1}}>IMAde</h1>
@@ -269,6 +351,7 @@ function App() {
               border:"none", borderBottom: tab===t.id ? "2px solid #818cf8" : "2px solid transparent",
               padding:"10px 18px", color: tab===t.id ? "#e2e8f0" : "#6b6b80",
               fontSize:13, cursor:"pointer", whiteSpace:"nowrap",
+              transition:"color 0.15s ease, border-color 0.15s ease",
             }}
               onMouseEnter={e=>{if(tab!==t.id)e.target.style.color="#a0a0b0"}}
               onMouseLeave={e=>{if(tab!==t.id)e.target.style.color="#6b6b80"}}
@@ -299,47 +382,60 @@ function App() {
         </div>
       )}
 
+      {/* Visualizer — full-width, outside constrained content */}
+      {tab === "visualizer" && (
+        <div key="visualizer" style={{padding:"8px 8px 0",animation:"tabFadeIn 0.2s ease-out"}}>
+          <VisualizerTab songs={songs} />
+        </div>
+      )}
+
       {/* Content */}
-      <div style={{maxWidth:1200,margin:"0 auto",padding:"20px 24px 40px"}}>
-        {tab === "player" && <PlayerTab songs={songs} genres={genres} comparisons={comparisons} onRefresh={refresh} showToast={showToast} switchTab={switchTab}
-          queue={playerQueue} setQueue={setPlayerQueue} queueIdx={playerQueueIdx} setQueueIdx={setPlayerQueueIdx}
-          shuffle={playerShuffle} setShuffle={setPlayerShuffle} loop={playerLoop} setLoop={setPlayerLoop} />}
-        {tab === "library" && <LibraryTab songs={songs} genres={genres} onRefresh={refresh}
-          filterGenre={libFilterGenre} setFilterGenre={setLibFilterGenre}
-          selectMode={libSelectMode} setSelectMode={setLibSelectMode}
-          selectedIds={libSelectedIds} setSelectedIds={setLibSelectedIds}
-          batchGenre={libBatchGenre} setBatchGenre={setLibBatchGenre}
-          stickyTop={headerHeight} listenTimes={listenTimes}
-          setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx} switchTab={switchTab}
-          playlists={playlists} showToast={showToast} rowDensity={rowDensity} />}
-        {tab === "upload" && <UploadTab
-          onRefresh={refresh} genres={genres} songs={songs}
-          uploadFiles={uploadFiles} setUploadFiles={setUploadFiles}
-          uploading={uploading} uploadDone={uploadDone} setUploadDone={setUploadDone}
-          uploadProgress={uploadProgress} startUpload={startUpload} />}
-        {tab === "playlists" && <PlaylistsTab songs={songs} playlists={playlists} genres={genres} comparisons={comparisons} onRefresh={refresh} showToast={showToast}
-          setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx} />}
+      <div style={{maxWidth:1200,margin:"0 auto",padding: tab === "visualizer" ? "0" : "20px 24px 40px"}}>
+        {/* BattleTab uses display:none/block to preserve session state */}
         <div style={{display: tab === "battle" ? "block" : "none"}}>
           {loaded && <BattleTab songs={songs} comparisons={comparisons} onRefresh={refresh} showToast={showToast} savedPair={battlePair} setSavedPair={setBattlePair}
             hasSeenIntro={hasSeenIntro} setHasSeenIntro={persistIntro} hasSeenPhase2={hasSeenPhase2} setHasSeenPhase2={persistPhase2}
             focusedSessionSongs={focusedSessionSongs} setFocusedSessionSongs={setFocusedSessionSongs} stopAudio={audio.stop}
             sessionLength={sessionLength} bracketSize={bracketSize} />}
         </div>
-        {tab === "rankings" && <RankingsTab songs={songs} comparisons={comparisons} onRefresh={refresh} showToast={showToast}
-          lastUpdateCompCount={lastUpdateCompCount} setLastUpdateCompCount={setLastUpdateCompCount} switchTab={switchTab}
-          showVariance={showVariance} showWinLoss={showWinLoss} rowDensity={rowDensity}
-          setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx} />}
-        {tab === "stats" && <StatsTab songs={songs} comparisons={comparisons} listenTimes={listenTimes}
-          setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx} switchTab={switchTab}
-          onStartFocusedSession={(songIds) => { setFocusedSessionSongs(songIds); switchTab("battle"); }} />}
-        {tab === "genres" && <SettingsTab genres={genres} songs={songs} comparisons={comparisons} playlists={playlists} onRefresh={refresh} showToast={showToast}
-          showVariance={showVariance} setShowVariance={(v) => { setShowVariance(v); localStorage.setItem("imade_showVariance", v ? "1" : "0"); }}
-          sessionLength={sessionLength} setSessionLength={(v) => persistSetting("sessionLength", v, setSessionLength)}
-          bracketSize={bracketSize} setBracketSize={(v) => { const n = Number(v); setBracketSize(n); localStorage.setItem("imade_bracketSize", String(n)); }}
-          showWinLoss={showWinLoss} setShowWinLoss={(v) => { setShowWinLoss(v); localStorage.setItem("imade_showWinLoss", v ? "1" : "0"); }}
-          rowDensity={rowDensity} setRowDensity={(v) => persistSetting("rowDensity", v, setRowDensity)}
-          listenTimes={listenTimes} setListenTimes={setListenTimes} listenTimesRef={listenTimesRef}
-          />}
+        {/* All other tabs get fade-in animation */}
+        {tab !== "battle" && tab !== "visualizer" && (
+          <div key={tab} style={{animation:"tabFadeIn 0.2s ease-out"}}>
+            {tab === "player" && <PlayerTab songs={songs} genres={genres} comparisons={comparisons} onRefresh={refresh} showToast={showToast} switchTab={switchTab}
+              queue={playerQueue} setQueue={setPlayerQueue} queueIdx={playerQueueIdx} setQueueIdx={setPlayerQueueIdx}
+              shuffle={playerShuffle} setShuffle={setPlayerShuffle} loop={playerLoop} setLoop={setPlayerLoop} />}
+            {tab === "library" && <LibraryTab songs={songs} genres={genres} onRefresh={refresh}
+              filterGenre={libFilterGenre} setFilterGenre={setLibFilterGenre}
+              selectMode={libSelectMode} setSelectMode={setLibSelectMode}
+              selectedIds={libSelectedIds} setSelectedIds={setLibSelectedIds}
+              batchGenre={libBatchGenre} setBatchGenre={setLibBatchGenre}
+              stickyTop={headerHeight} listenTimes={listenTimes}
+              setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx} switchTab={switchTab}
+              playlists={playlists} showToast={showToast} rowDensity={rowDensity} />}
+            {tab === "upload" && <UploadTab
+              onRefresh={refresh} genres={genres} songs={songs}
+              uploadFiles={uploadFiles} setUploadFiles={setUploadFiles}
+              uploading={uploading} uploadDone={uploadDone} setUploadDone={setUploadDone}
+              uploadProgress={uploadProgress} startUpload={startUpload} />}
+            {tab === "playlists" && <PlaylistsTab songs={songs} playlists={playlists} genres={genres} comparisons={comparisons} onRefresh={refresh} showToast={showToast}
+              setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx} />}
+            {tab === "rankings" && <RankingsTab songs={songs} comparisons={comparisons} onRefresh={refresh} showToast={showToast}
+              lastUpdateCompCount={lastUpdateCompCount} setLastUpdateCompCount={setLastUpdateCompCount} switchTab={switchTab}
+              showVariance={showVariance} showWinLoss={showWinLoss} rowDensity={rowDensity}
+              setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx} />}
+            {tab === "stats" && <StatsTab songs={songs} comparisons={comparisons} listenTimes={listenTimes}
+              setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx} switchTab={switchTab}
+              onStartFocusedSession={(songIds) => { setFocusedSessionSongs(songIds); switchTab("battle"); }} />}
+            {tab === "genres" && <SettingsTab genres={genres} songs={songs} comparisons={comparisons} playlists={playlists} onRefresh={refresh} showToast={showToast}
+              showVariance={showVariance} setShowVariance={(v) => { setShowVariance(v); localStorage.setItem("imade_showVariance", v ? "1" : "0"); }}
+              sessionLength={sessionLength} setSessionLength={(v) => persistSetting("sessionLength", v, setSessionLength)}
+              bracketSize={bracketSize} setBracketSize={(v) => { const n = Number(v); setBracketSize(n); localStorage.setItem("imade_bracketSize", String(n)); }}
+              showWinLoss={showWinLoss} setShowWinLoss={(v) => { setShowWinLoss(v); localStorage.setItem("imade_showWinLoss", v ? "1" : "0"); }}
+              rowDensity={rowDensity} setRowDensity={(v) => persistSetting("rowDensity", v, setRowDensity)}
+              listenTimes={listenTimes} setListenTimes={setListenTimes} listenTimesRef={listenTimesRef}
+              />}
+          </div>
+        )}
       </div>
     </div>
   );

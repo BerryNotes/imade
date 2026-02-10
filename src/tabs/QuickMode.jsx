@@ -78,7 +78,11 @@ function QuickMode({ songs, standings, compMap, compCount, submitComparison, onR
         <p style={{color:"#e2e8f0",fontSize:18,fontWeight:600,margin:"12px 0 4px"}}>All songs rated</p>
         <p style={{color:"#6b6b80",fontSize:13,margin:"0 0 16px"}}>You've quick-rated every song.</p>
         <button onClick={resetSession}
-          style={{padding:"12px 24px",borderRadius:10,background:"linear-gradient(135deg,#4338ca,#6366f1)",border:"none",color:"#fff",fontSize:14,fontWeight:600,cursor:"pointer"}}>
+          style={{padding:"12px 24px",borderRadius:10,background:"linear-gradient(135deg,#4338ca,#6366f1)",border:"none",color:"#fff",fontSize:14,fontWeight:600,cursor:"pointer",
+            transition:"transform 0.1s ease, box-shadow 0.15s ease"}}
+          onMouseDown={e=>e.currentTarget.style.transform="scale(0.97)"}
+          onMouseUp={e=>e.currentTarget.style.transform="scale(1)"}
+          onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
           Start fresh round
         </button>
       </div>

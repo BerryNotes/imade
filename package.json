@@ -46,6 +46,7 @@
     },
     "files": [
       "electron.js",
+      "preload.js",
       "server.js",
       "dist-client/**/*",
       "build/icon.png",

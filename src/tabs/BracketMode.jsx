@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import AudioPlayer from '../components/AudioPlayer';
 import GenreTag from '../components/GenreTag';
 
@@ -10,6 +10,8 @@ function BracketMode({ songs, standings, compMap, submitComparison, onRefresh, s
   const [winner, setWinner] = useState(null);
   const [processing, setProcessing] = useState(false);
   const [results, setResults] = useState([]);
+  const [winnerSide, setWinnerSide] = useState(null);
+  const matchKeyRef = useRef(null);
 
   const startBracket = useCallback(() => {
     // Prioritize unranked songs, fill remaining slots with ranked songs
@@ -41,10 +43,12 @@ function BracketMode({ songs, standings, compMap, submitComparison, onRefresh, s
   const match = currentRound.length >= 2 ? [currentRound[matchIdx * 2], currentRound[matchIdx * 2 + 1]] : null;
   const matchesInRound = Math.floor(currentRound.length / 2);
 
-  const pick = async (winnerId) => {
+  const pick = async (winnerId, side) => {
     if (!match || processing) return;
     setProcessing(true);
     stopAudio();
+    setWinnerSide(side);
+    await new Promise(r => setTimeout(r, 350));
     const loserId = match[0].id === winnerId ? match[1].id : match[0].id;
     await submitComparison(winnerId, loserId, "bracket");
     await onRefresh();
@@ -56,6 +60,8 @@ function BracketMode({ songs, standings, compMap, submitComparison, onRefresh, s
     const newBracket = [...bracket];
     newBracket[round + 1] = [...nextRound, winnerSong];
     setBracket(newBracket);
+
+    setWinnerSide(null);
 
     if (matchIdx + 1 < matchesInRound) {
       setMatchIdx(matchIdx + 1);
@@ -126,19 +132,38 @@ function BracketMode({ songs, standings, compMap, submitComparison, onRefresh, s
     );
   };
 
-  const renderCard = (song, onPick) => (
-    <div>
-      <div style={{background:"#14142a",border:"1px solid #2a2a45",borderRadius:16,padding:20}}>
-        <h3 style={{margin:"0 0 10px",color:"#e2e8f0",fontSize:18,fontWeight:400,textAlign:"center"}}>{song.title}</h3>
-        {song.genre && <div style={{textAlign:"center",marginBottom:10}}><GenreTag genre={song.genre} /></div>}
-        {song.audioFile && <AudioPlayer src={song.audioFile} compact />}
+  // Track match key for entrance animation
+  const curMatchKey = match ? match[0].id + "|" + match[1].id : null;
+  if (curMatchKey !== matchKeyRef.current) {
+    matchKeyRef.current = curMatchKey;
+  }
+
+  const renderCard = (song, onPick, side) => {
+    const isWinner = winnerSide === side;
+    const isLoser = winnerSide && winnerSide !== side;
+    return (
+      <div style={{
+        animation: !winnerSide ? "cardEntrance 0.25s ease-out both" : undefined,
+        animationDelay: side === "right" ? "0.08s" : "0s",
+        ...(isWinner ? {animation:"winPulse 0.4s ease-out",borderRadius:16} : {}),
+        ...(isLoser ? {animation:"loseShrink 0.35s ease-out forwards"} : {}),
+      }}>
+        <div style={{background:"#14142a",border: isWinner ? "1px solid #22c55e" : "1px solid #2a2a45",borderRadius:16,padding:20,transition:"border-color 0.2s ease"}}>
+          <h3 style={{margin:"0 0 10px",color:"#e2e8f0",fontSize:18,fontWeight:400,textAlign:"center"}}>{song.title}</h3>
+          {song.genre && <div style={{textAlign:"center",marginBottom:10}}><GenreTag genre={song.genre} /></div>}
+          {song.audioFile && <AudioPlayer src={song.audioFile} compact />}
+        </div>
+        <button onClick={onPick} disabled={processing}
+          style={{width:"100%",marginTop:10,padding:"12px",borderRadius:12,background:"linear-gradient(135deg,#4338ca,#6366f1)",border:"none",color:"#fff",fontSize:14,cursor:processing?"default":"pointer",fontWeight:600,opacity:processing?0.5:1,
+            transition:"transform 0.1s ease, box-shadow 0.15s ease"}}
+          onMouseDown={e=>e.currentTarget.style.transform="scale(0.97)"}
+          onMouseUp={e=>e.currentTarget.style.transform="scale(1)"}
+          onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
+          Select
+        </button>
       </div>
-      <button onClick={onPick} disabled={processing}
-        style={{width:"100%",marginTop:10,padding:"12px",borderRadius:12,background:"linear-gradient(135deg,#4338ca,#6366f1)",border:"none",color:"#fff",fontSize:14,cursor:processing?"default":"pointer",fontWeight:600,opacity:processing?0.5:1}}>
-        Select
-      </button>
-    </div>
-  );
+    );
+  };
 
   if (winner) {
     const bracketComparisons = actualSize - 1;
@@ -165,10 +190,10 @@ function BracketMode({ songs, standings, compMap, submitComparison, onRefresh, s
         <span style={{color:"#f59e0b",fontSize:13,fontWeight:600}}>{roundLabels[round] || ("Round " + (round+1))} — Match {matchIdx + 1}/{matchesInRound}</span>
         <button onClick={startBracket} style={{background:"none",border:"1px solid #2a2a45",borderRadius:8,padding:"6px 12px",color:"#6b7280",fontSize:11,cursor:"pointer"}}>restart</button>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:12,alignItems:"center"}}>
-        {renderCard(match[0], ()=>pick(match[0].id))}
+      <div key={matchKeyRef.current} style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:12,alignItems:"center"}}>
+        {renderCard(match[0], ()=>pick(match[0].id, "left"), "left")}
         <div style={{textAlign:"center",padding:"0 4px"}}><span style={{fontSize:24,color:"#f59e0b"}}>vs</span></div>
-        {renderCard(match[1], ()=>pick(match[1].id))}
+        {renderCard(match[1], ()=>pick(match[1].id, "right"), "right")}
       </div>
     </div>
   );

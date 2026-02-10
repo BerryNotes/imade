@@ -21,8 +21,8 @@ function SessionSummary({ data, songs, compCount, placementMin, onNewSession, on
           { label: "placed", value: totalPlaced + "/" + totalSongs, color: "#818cf8" },
           { label: "comparisons", value: d.totalComps, color: "#22c55e" },
           { label: "elo spread", value: d.spread, color: "#f59e0b" },
-        ].map(s => (
-          <div key={s.label} style={{background:"#0d0d1a",border:"1px solid #1e1e35",borderRadius:10,padding:"10px",textAlign:"center"}}>
+        ].map((s, i) => (
+          <div key={s.label} style={{background:"#0d0d1a",border:"1px solid #1e1e35",borderRadius:10,padding:"10px",textAlign:"center",animation:"statPanelIn 0.3s ease-out both",animationDelay:(i*80)+"ms"}}>
             <div style={{color:s.color,fontSize:18,fontWeight:700}}>{s.value}</div>
             <div style={{color:"#6b6b80",fontSize:9,textTransform:"uppercase",letterSpacing:"0.06em",marginTop:2}}>{s.label}</div>
           </div>
@@ -91,11 +91,19 @@ function SessionSummary({ data, songs, compCount, placementMin, onNewSession, on
 
       <div style={{display:"flex",gap:10,marginTop:8}}>
         <button onClick={onNewSession}
-          style={{flex:1,padding:"14px",borderRadius:12,background:"linear-gradient(135deg,#4338ca,#6366f1)",border:"none",color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer"}}>
+          style={{flex:1,padding:"14px",borderRadius:12,background:"linear-gradient(135deg,#4338ca,#6366f1)",border:"none",color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",
+            transition:"transform 0.1s ease, box-shadow 0.15s ease"}}
+          onMouseDown={e=>e.currentTarget.style.transform="scale(0.97)"}
+          onMouseUp={e=>e.currentTarget.style.transform="scale(1)"}
+          onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
           New session
         </button>
         <button onClick={onDone}
-          style={{padding:"14px 20px",borderRadius:12,background:"none",border:"1px solid #2a2a45",color:"#6b6b80",fontSize:14,cursor:"pointer"}}>
+          style={{padding:"14px 20px",borderRadius:12,background:"none",border:"1px solid #2a2a45",color:"#6b6b80",fontSize:14,cursor:"pointer",
+            transition:"transform 0.1s ease, box-shadow 0.15s ease"}}
+          onMouseDown={e=>e.currentTarget.style.transform="scale(0.97)"}
+          onMouseUp={e=>e.currentTarget.style.transform="scale(1)"}
+          onMouseLeave={e=>e.currentTarget.style.transform="scale(1)"}>
           Done
         </button>
       </div>
