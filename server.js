@@ -26,8 +26,38 @@ if (!fs.existsSync(GENRES_FILE))
 if (!fs.existsSync(COMPARISONS_FILE)) fs.writeFileSync(COMPARISONS_FILE, "[]");
 if (!fs.existsSync(PLAYLISTS_FILE)) fs.writeFileSync(PLAYLISTS_FILE, "[]");
 
-const readJSON = (f) => JSON.parse(fs.readFileSync(f, "utf-8"));
-const writeJSON = (f, d) => fs.writeFileSync(f, JSON.stringify(d, null, 2));
+const readJSON = (f) => {
+  try {
+    return JSON.parse(fs.readFileSync(f, "utf-8"));
+  } catch (e) {
+    const backup = f + ".bak";
+    if (fs.existsSync(backup)) {
+      console.error(`Warning: ${path.basename(f)} corrupted, restoring from backup`);
+      const data = JSON.parse(fs.readFileSync(backup, "utf-8"));
+      fs.writeFileSync(f, JSON.stringify(data, null, 2));
+      return data;
+    }
+    return [];
+  }
+};
+
+const writeJSON = (f, d) => {
+  const json = JSON.stringify(d, null, 2);
+  const tmp = f + ".tmp";
+  fs.writeFileSync(tmp, json);
+  if (fs.existsSync(f)) {
+    try { fs.copyFileSync(f, f + ".bak"); } catch {}
+  }
+  fs.renameSync(tmp, f);
+};
+
+// Per-file lock to prevent concurrent read-modify-write races
+const fileLocks = new Map();
+const withLock = (f, fn) => {
+  const chain = (fileLocks.get(f) || Promise.resolve()).then(fn, fn);
+  fileLocks.set(f, chain.catch(() => {}));
+  return chain;
+};
 
 app.use(express.json());
 app.use("/uploads", express.static(UPLOADS_DIR));
