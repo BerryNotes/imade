@@ -72,7 +72,7 @@ function useRanking(songs, comparisons) {
     const standings = songs
       .map(s => ({
         ...s,
-        elo: Math.round(s.baseElo != null ? s.baseElo : (elo[s.id] || 500)),
+        elo: Math.round(s.baseElo > 0 ? s.baseElo : (elo[s.id] || 500)),
         eloRaw: Math.round(elo[s.id] || 500),
         eloMin: Math.round(eloMin[s.id] || 500),
         eloMax: Math.round(eloMax[s.id] || 500),

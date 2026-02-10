@@ -131,9 +131,11 @@ app.put("/api/songs/:id", upload.single("audio"), (req, res) => {
     const p = path.join(BASE_DIR, songs[idx].audioFile);
     if (fs.existsSync(p)) fs.unlinkSync(p);
   }
-  // Handle baseElo (manual Elo override)
+  // Handle baseElo (manual Elo override) — only set when explicitly provided and non-zero
   if (req.body.baseElo !== undefined) {
-    songs[idx].baseElo = parseInt(req.body.baseElo, 10) || 0;
+    const val = parseInt(req.body.baseElo, 10);
+    if (val > 0) songs[idx].baseElo = val;
+    else delete songs[idx].baseElo;
   }
   songs[idx] = {
     ...songs[idx],
