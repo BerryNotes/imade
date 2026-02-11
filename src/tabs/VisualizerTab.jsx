@@ -395,30 +395,40 @@ function VisualizerTab({ songs, onFullscreen }) {
     const endIdx = Math.floor(progress * BUFFER_SIZE);
     if (endIdx < 2) return;
 
-    // Downsample to max ~300 points for smooth rendering
+    // Downsample to ~300 points with neighbor averaging for smoothness
     const MAX_PTS = 300;
     const step = Math.max(1, Math.floor(endIdx / MAX_PTS));
     const drawW = (endIdx / BUFFER_SIZE) * w;
 
-    // Draw waveform as line segments (fast path — no quadraticCurveTo)
+    // Build smoothed points — average a window around each sample
+    const pts = [];
+    const halfWin = Math.max(1, Math.floor(step / 2));
+    for (let i = 0; i < endIdx; i += step) {
+      let sum = 0, count = 0;
+      for (let j = Math.max(0, i - halfWin); j < Math.min(endIdx, i + halfWin + 1); j++) {
+        sum += buf[j]; count++;
+      }
+      const val = sum / count;
+      pts.push({ x: (i / BUFFER_SIZE) * w, y: mid + val * mid * 0.7 });
+    }
+    // Ensure we hit the end
+    if (pts.length > 0) {
+      const lastIdx = endIdx - 1;
+      pts.push({ x: (lastIdx / BUFFER_SIZE) * w, y: mid + buf[lastIdx] * mid * 0.7 });
+    }
+    if (pts.length < 2) return;
+
+    // Draw smooth bezier curve through points
     ctx.beginPath();
-    const x0 = 0;
-    const y0 = mid + buf[0] * mid * 0.7;
-    ctx.moveTo(x0, y0);
-    let lastX = x0, lastY = y0;
-    for (let i = step; i < endIdx; i += step) {
-      const x = (i / BUFFER_SIZE) * w;
-      const y = mid + buf[i] * mid * 0.7;
-      lastX = x; lastY = y;
-      ctx.lineTo(x, y);
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const cpx = (pts[i].x + pts[i + 1].x) / 2;
+      const cpy = (pts[i].y + pts[i + 1].y) / 2;
+      ctx.quadraticCurveTo(pts[i].x, pts[i].y, cpx, cpy);
     }
-    // Ensure we hit the exact end position
-    if (endIdx > 0) {
-      const ex = (endIdx / BUFFER_SIZE) * w;
-      const ey = mid + buf[endIdx - 1] * mid * 0.7;
-      ctx.lineTo(ex, ey);
-      lastX = ex; lastY = ey;
-    }
+    const last = pts[pts.length - 1];
+    ctx.lineTo(last.x, last.y);
+    let lastX = last.x;
 
     const grad = ctx.createLinearGradient(0, 0, drawW, 0);
     grad.addColorStop(0, '#22c55e');
