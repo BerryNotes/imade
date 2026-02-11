@@ -1091,12 +1091,15 @@ function VisualizerTab({ songs, onFullscreen }) {
         const theta = (i / lonPts) * Math.PI * 2;
         const vertPos = Math.abs(Math.cos(theta));
         const bandVal = bassAvg * (1 - vertPos) + highAvg * vertPos + midAvg * 0.5;
-        const freqIdx = Math.floor((i / lonPts) * maxBin);
-        const pointVal = data[freqIdx] / 255;
-        const combined = pointVal * 0.6 + bandVal * 0.4;
+        // Mirror frequency index so both halves match — keeps sphere symmetric
+        const halfPts = lonPts / 2;
+        const mirrorI = i <= halfPts ? i : lonPts - i;
+        const freqIdx = Math.floor((mirrorI / halfPts) * maxBin);
+        const pointVal = data[Math.min(freqIdx, maxBin - 1)] / 255;
+        const combined = bandVal * 0.6 + pointVal * 0.4;
         // Surface ripple — waves travel across the sphere
         const ripple = rippleStrength * Math.sin(theta * 8 + phi * 6 + t * 4) * Math.sin(phi * 4 - t * 3);
-        const r = baseR * (1 + combined * baseDistort + ripple);
+        const r = baseR * (1 + combined * baseDistort * 0.5 + ripple);
         const x3 = r * Math.sin(theta) * Math.cos(phi);
         const y3 = r * Math.cos(theta);
         const z3 = r * Math.sin(theta) * Math.sin(phi);
@@ -1124,11 +1127,14 @@ function VisualizerTab({ songs, onFullscreen }) {
       ctx.beginPath();
       for (let i = 0; i <= latPts; i++) {
         const phi = (i / latPts) * Math.PI * 2;
-        const freqIdx = Math.floor((i / latPts) * maxBin);
-        const pointVal = data[freqIdx] / 255;
-        const combined = pointVal * 0.6 + latBandVal * 0.4;
+        // Mirror frequency index so both halves match
+        const halfPts = latPts / 2;
+        const mirrorI = i <= halfPts ? i : latPts - i;
+        const freqIdx = Math.floor((mirrorI / halfPts) * maxBin);
+        const pointVal = data[Math.min(freqIdx, maxBin - 1)] / 255;
+        const combined = latBandVal * 0.6 + pointVal * 0.4;
         const ripple = rippleStrength * Math.sin(theta * 8 + phi * 6 + t * 4) * Math.sin(phi * 4 - t * 3);
-        const r = latR * (1 + combined * baseDistort + ripple);
+        const r = latR * (1 + combined * baseDistort * 0.5 + ripple);
         const x3 = r * Math.cos(phi);
         const z3 = r * Math.sin(phi);
         const { sx, sy } = project(x3, latY, z3);
