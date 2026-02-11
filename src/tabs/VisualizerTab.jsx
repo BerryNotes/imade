@@ -18,7 +18,7 @@ const MAX_PARTICLES = 1500;
 
 function VisualizerTab({ songs, onFullscreen }) {
   const audio = useGlobalAudio();
-  const { playingSrc, isPlaying, getAnalyser, resumeAudioContext, toggle, pause } = audio;
+  const { playingSrc, isPlaying, getAnalyser, resumeAudioContext, toggle, pause, currentTime, duration } = audio;
   const canvasRef = useRef(null);
   const rafRef = useRef(null);
   const particlesRef = useRef([]);
@@ -41,11 +41,13 @@ function VisualizerTab({ songs, onFullscreen }) {
 
   const currentSong = playingSrc ? songs.find(s => s.audioFile === playingSrc) : null;
 
-  // Number keys 1-8 switch visualizer mode
+  // Number keys 1-9,0 switch visualizer mode (0 = mode 10)
   useEffect(() => {
     const handler = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
-      const num = parseInt(e.key, 10);
+      const raw = parseInt(e.key, 10);
+      if (isNaN(raw)) return;
+      const num = raw === 0 ? 10 : raw; // 0 key → mode 10
       if (num >= 1 && num <= MODES.length) {
         e.preventDefault();
         const m = MODES[num - 1];
@@ -113,8 +115,12 @@ function VisualizerTab({ songs, onFullscreen }) {
   const waveWriteRef = useRef(0);      // write position in the buffer
   const spectroCanvasRef = useRef(null); // offscreen spectrograph history canvas
   const spectroWriteRef = useRef(0);     // write column position
+  const currentTimeRef = useRef(0);
+  const durationRef = useRef(0);
   useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
   useEffect(() => { playingSrcRef.current = playingSrc; }, [playingSrc]);
+  useEffect(() => { currentTimeRef.current = currentTime; }, [currentTime]);
+  useEffect(() => { durationRef.current = duration; }, [duration]);
 
   // Animation loop — always runs so visualizations can linger after song ends
   useEffect(() => {
@@ -377,37 +383,38 @@ function VisualizerTab({ songs, onFullscreen }) {
 
   const drawWaveform = (ctx, w, h, data) => {
     const mid = h / 2;
-    const BUFFER_SIZE = 4096; // visible samples across the screen
+    const BUFFER_SIZE = 4096;
+    const dur = durationRef.current;
+    const time = currentTimeRef.current;
 
-    // Init scrolling buffer on first call
+    // Init buffer on first call or song change
     if (!waveBufferRef.current || waveBufferRef.current.length !== BUFFER_SIZE) {
       waveBufferRef.current = new Float32Array(BUFFER_SIZE);
       waveWriteRef.current = 0;
     }
     const buf = waveBufferRef.current;
 
-    // Push 1 sample every 4 frames for an ultra-slow scrolling oscilloscope
-    // At 60fps this takes ~4.5 minutes to fill the 4096-sample screen
-    if (!waveBufferRef._frameCount) waveBufferRef._frameCount = 0;
-    waveBufferRef._frameCount++;
-    if (waveBufferRef._frameCount % 4 === 0) {
-      const srcIdx = Math.floor(data.length / 2);
-      buf[waveWriteRef.current % BUFFER_SIZE] = (data[srcIdx] - 128) / 128;
+    // Write position based on song progress so waveform reaches the end at song end
+    const progress = dur > 0 ? Math.min(time / dur, 1) : 0;
+    const targetWrite = Math.floor(progress * BUFFER_SIZE);
+
+    // Fill any new samples since last frame
+    const srcIdx = Math.floor(data.length / 2);
+    const sample = (data[srcIdx] - 128) / 128;
+    while (waveWriteRef.current < targetWrite) {
+      buf[waveWriteRef.current % BUFFER_SIZE] = sample;
       waveWriteRef.current++;
     }
 
-    // Read the buffer as a scrolling window
-    const writePos = waveWriteRef.current;
-    const numPts = Math.min(BUFFER_SIZE, writePos);
+    // Build points from buffer up to current write position
+    const numPts = Math.min(BUFFER_SIZE, waveWriteRef.current);
+    if (numPts < 2) return;
+
     const pts = [];
     for (let i = 0; i < numPts; i++) {
-      const bufIdx = ((writePos - numPts + i) % BUFFER_SIZE + BUFFER_SIZE) % BUFFER_SIZE;
       const x = (i / (BUFFER_SIZE - 1)) * w;
-      const val = buf[bufIdx];
-      pts.push({ x, y: mid + val * mid * 0.7 });
+      pts.push({ x, y: mid + buf[i] * mid * 0.7 });
     }
-
-    if (pts.length < 2) return;
 
     // Draw smooth curve
     ctx.beginPath();
@@ -419,7 +426,8 @@ function VisualizerTab({ songs, onFullscreen }) {
     }
     ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
 
-    const grad = ctx.createLinearGradient(0, 0, w, 0);
+    const drawW = (numPts / BUFFER_SIZE) * w;
+    const grad = ctx.createLinearGradient(0, 0, drawW, 0);
     grad.addColorStop(0, '#22c55e');
     grad.addColorStop(0.5, '#818cf8');
     grad.addColorStop(1, '#f59e0b');
@@ -432,15 +440,23 @@ function VisualizerTab({ songs, onFullscreen }) {
     ctx.shadowBlur = 0;
 
     // Fill under curve
-    ctx.lineTo(w, mid);
+    ctx.lineTo(pts[pts.length - 1].x, mid);
     ctx.lineTo(0, mid);
     ctx.closePath();
-    const fillGrad = ctx.createLinearGradient(0, 0, w, 0);
+    const fillGrad = ctx.createLinearGradient(0, 0, drawW, 0);
     fillGrad.addColorStop(0, 'rgba(34,197,94,0.1)');
     fillGrad.addColorStop(0.5, 'rgba(129,140,248,0.12)');
     fillGrad.addColorStop(1, 'rgba(245,158,11,0.1)');
     ctx.fillStyle = fillGrad;
     ctx.fill();
+
+    // Playhead line at the leading edge
+    ctx.beginPath();
+    ctx.moveTo(pts[pts.length - 1].x, 0);
+    ctx.lineTo(pts[pts.length - 1].x, h);
+    ctx.strokeStyle = 'rgba(129,140,248,0.3)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
   };
 
   // Fourier wave — frequency domain as a smooth curve (amplitude vs frequency)
