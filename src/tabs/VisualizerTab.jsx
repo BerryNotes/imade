@@ -390,7 +390,10 @@ function VisualizerTab({ songs, onFullscreen }) {
     for (let i = 0; i < len; i++) {
       const x = (i / (len - 1)) * w;
       const val = (timeData[i] - 128) / 128;
-      const y = mid + val * mid * 0.8;
+      // Taper amplitude toward edges — full strength in center, zero at edges
+      const t = i / (len - 1); // 0 to 1
+      const taper = Math.sin(t * Math.PI); // 0 → 1 → 0
+      const y = mid + val * mid * 0.8 * taper;
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
