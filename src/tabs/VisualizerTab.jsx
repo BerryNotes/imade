@@ -4,7 +4,9 @@ import { useGlobalAudio } from '../components/AudioProvider';
 const MODES = [
   { id: 'bars', label: 'Bars' },
   { id: 'radial', label: 'Radial' },
-  { id: 'waveform', label: 'Wave' },
+  { id: 'waveform', label: 'Waveform' },
+  { id: 'wave', label: 'Wave' },
+  { id: 'spectrograph', label: 'Spectrograph' },
   { id: 'particles', label: 'Particles' },
   { id: 'orbit', label: 'Orbit' },
   { id: 'sphere', label: 'Sphere' },
@@ -109,6 +111,8 @@ function VisualizerTab({ songs, onFullscreen }) {
   const particleSpawnedRef = useRef(0); // total particles spawned this song (cap for one-round)
   const waveBufferRef = useRef(null);  // scrolling waveform buffer
   const waveWriteRef = useRef(0);      // write position in the buffer
+  const spectroCanvasRef = useRef(null); // offscreen spectrograph history canvas
+  const spectroWriteRef = useRef(0);     // write column position
   useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
   useEffect(() => { playingSrcRef.current = playingSrc; }, [playingSrc]);
 
@@ -157,6 +161,8 @@ function VisualizerTab({ songs, onFullscreen }) {
         particleSpawnedRef.current = 0;
         waveBufferRef.current = null;
         waveWriteRef.current = 0;
+        spectroCanvasRef.current = null;
+        spectroWriteRef.current = 0;
         prevSongRef.current = playingSrcRef.current;
       }
 
@@ -256,6 +262,8 @@ function VisualizerTab({ songs, onFullscreen }) {
       if (mode === 'bars') drawBars(ctx, w, h, freqData);
       else if (mode === 'radial') drawRadial(ctx, w, h, freqData);
       else if (mode === 'waveform') drawWaveform(ctx, w, h, timeData);
+      else if (mode === 'wave') drawWave(ctx, w, h, freqData);
+      else if (mode === 'spectrograph') drawSpectrograph(ctx, w, h, freqData, canvas);
       else if (mode === 'particles') drawParticles(ctx, w, h, freqData, vizTimeRef.current);
       else if (mode === 'orbit') drawOrbit(ctx, w, h, freqData, vizTimeRef.current, dt);
       else if (mode === 'sphere') drawSphere(ctx, w, h, freqData);
@@ -428,6 +436,178 @@ function VisualizerTab({ songs, onFullscreen }) {
     fillGrad.addColorStop(1, 'rgba(245,158,11,0.1)');
     ctx.fillStyle = fillGrad;
     ctx.fill();
+  };
+
+  // Fourier wave — frequency domain as a smooth curve (amplitude vs frequency)
+  const drawWave = (ctx, w, h, freqData) => {
+    const len = freqData.length;
+    const mid = h / 2;
+
+    // Build points from frequency data
+    const pts = [];
+    for (let i = 0; i < len; i++) {
+      const x = (i / (len - 1)) * w;
+      const val = freqData[i] / 255;
+      pts.push({ x, y: mid - val * mid * 0.85 });
+    }
+
+    // Mirror below center line for symmetry
+    const ptsBottom = pts.map(p => ({ x: p.x, y: mid + (mid - p.y) }));
+
+    // Draw top curve
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const cpx = (pts[i].x + pts[i + 1].x) / 2;
+      const cpy = (pts[i].y + pts[i + 1].y) / 2;
+      ctx.quadraticCurveTo(pts[i].x, pts[i].y, cpx, cpy);
+    }
+    ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+
+    // Continue to bottom curve (mirrored) to close the shape
+    ctx.lineTo(ptsBottom[ptsBottom.length - 1].x, ptsBottom[ptsBottom.length - 1].y);
+    for (let i = ptsBottom.length - 2; i >= 1; i--) {
+      const cpx = (ptsBottom[i].x + ptsBottom[i - 1].x) / 2;
+      const cpy = (ptsBottom[i].y + ptsBottom[i - 1].y) / 2;
+      ctx.quadraticCurveTo(ptsBottom[i].x, ptsBottom[i].y, cpx, cpy);
+    }
+    ctx.lineTo(ptsBottom[0].x, ptsBottom[0].y);
+    ctx.closePath();
+
+    // Fill gradient
+    const fillGrad = ctx.createLinearGradient(0, 0, w, 0);
+    fillGrad.addColorStop(0, 'rgba(99,102,241,0.15)');
+    fillGrad.addColorStop(0.4, 'rgba(168,85,247,0.12)');
+    fillGrad.addColorStop(1, 'rgba(236,72,153,0.08)');
+    ctx.fillStyle = fillGrad;
+    ctx.fill();
+
+    // Stroke top curve
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const cpx = (pts[i].x + pts[i + 1].x) / 2;
+      const cpy = (pts[i].y + pts[i + 1].y) / 2;
+      ctx.quadraticCurveTo(pts[i].x, pts[i].y, cpx, cpy);
+    }
+    ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+    const grad = ctx.createLinearGradient(0, 0, w, 0);
+    grad.addColorStop(0, '#6366f1');
+    grad.addColorStop(0.5, '#a855f7');
+    grad.addColorStop(1, '#ec4899');
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 2.5;
+    ctx.shadowColor = 'rgba(139,92,246,0.4)';
+    ctx.shadowBlur = 10;
+    ctx.stroke();
+
+    // Stroke bottom curve (mirrored)
+    ctx.beginPath();
+    ctx.moveTo(ptsBottom[0].x, ptsBottom[0].y);
+    for (let i = 1; i < ptsBottom.length - 1; i++) {
+      const cpx = (ptsBottom[i].x + ptsBottom[i + 1].x) / 2;
+      const cpy = (ptsBottom[i].y + ptsBottom[i + 1].y) / 2;
+      ctx.quadraticCurveTo(ptsBottom[i].x, ptsBottom[i].y, cpx, cpy);
+    }
+    ctx.lineTo(ptsBottom[ptsBottom.length - 1].x, ptsBottom[ptsBottom.length - 1].y);
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Center line
+    ctx.beginPath();
+    ctx.moveTo(0, mid);
+    ctx.lineTo(w, mid);
+    ctx.strokeStyle = 'rgba(148,163,184,0.15)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  };
+
+  // Spectrograph — scrolling frequency-vs-time heatmap
+  const drawSpectrograph = (ctx, w, h, freqData, canvas) => {
+    const dpr = window.devicePixelRatio || 1;
+    const cw = Math.round(w * dpr);
+    const ch = Math.round(h * dpr);
+
+    // Init or resize offscreen spectrograph canvas
+    let sc = spectroCanvasRef.current;
+    if (!sc || sc.width !== cw || sc.height !== ch) {
+      sc = document.createElement('canvas');
+      sc.width = cw;
+      sc.height = ch;
+      spectroCanvasRef.current = sc;
+      spectroWriteRef.current = 0;
+    }
+    const sctx = sc.getContext('2d');
+
+    // Write one column of frequency data
+    const col = spectroWriteRef.current % Math.round(w);
+    const binCount = freqData.length;
+
+    for (let i = 0; i < binCount; i++) {
+      const val = freqData[i] / 255;
+      // Map frequency bin to y (low freq at bottom, high at top)
+      const y = Math.round((1 - i / binCount) * h);
+      const barH = Math.max(Math.ceil(h / binCount), 1);
+
+      // Color: dark blue → cyan → yellow → white based on intensity
+      let r, g, b;
+      if (val < 0.25) {
+        const t = val / 0.25;
+        r = 0; g = Math.round(t * 40); b = Math.round(30 + t * 120);
+      } else if (val < 0.5) {
+        const t = (val - 0.25) / 0.25;
+        r = 0; g = Math.round(40 + t * 180); b = Math.round(150 + t * 60);
+      } else if (val < 0.75) {
+        const t = (val - 0.5) / 0.25;
+        r = Math.round(t * 255); g = Math.round(220 + t * 35); b = Math.round(210 - t * 160);
+      } else {
+        const t = (val - 0.75) / 0.25;
+        r = 255; g = 255; b = Math.round(50 + t * 205);
+      }
+
+      sctx.fillStyle = `rgb(${r},${g},${b})`;
+      sctx.fillRect(col * dpr, y * dpr, dpr, barH * dpr);
+    }
+
+    spectroWriteRef.current++;
+
+    // Draw the spectrograph onto the main canvas, scrolled so newest column is at the right
+    ctx.save();
+    const colPx = (col + 1) % Math.round(w);
+    // Draw right portion (older data) on left side
+    if (colPx < Math.round(w)) {
+      ctx.drawImage(sc, colPx * dpr, 0, (Math.round(w) - colPx) * dpr, ch, 0, 0, w - colPx, h);
+    }
+    // Draw left portion (newer data) on right side
+    if (colPx > 0) {
+      ctx.drawImage(sc, 0, 0, colPx * dpr, ch, w - colPx, 0, colPx, h);
+    }
+    ctx.restore();
+
+    // Frequency axis labels
+    ctx.fillStyle = 'rgba(148,163,184,0.5)';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'left';
+    const sampleRate = 44100;
+    const labels = [100, 500, 1000, 2000, 5000, 10000, 20000];
+    for (const freq of labels) {
+      if (freq > sampleRate / 2) continue;
+      const bin = Math.round(freq / (sampleRate / 2) * binCount);
+      const y = (1 - bin / binCount) * h;
+      if (y < 15 || y > h - 5) continue;
+      ctx.fillText(freq >= 1000 ? `${freq / 1000}k` : `${freq}`, 6, y + 4);
+      ctx.fillRect(0, y, 3, 1);
+    }
+
+    // Playhead line at right edge
+    ctx.strokeStyle = 'rgba(129,140,248,0.6)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(w - 1, 0);
+    ctx.lineTo(w - 1, h);
+    ctx.stroke();
   };
 
   const drawParticles = (ctx, w, h, data, now) => {
