@@ -1,15 +1,16 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useGlobalAudio } from './components/AudioProvider';
-import LibraryTab from './tabs/LibraryTab';
-import UploadTab from './tabs/UploadTab';
 import BattleTab from './tabs/BattleTab';
-import RankingsTab from './tabs/RankingsTab';
-import StatsTab from './tabs/StatsTab';
-import SettingsTab from './tabs/SettingsTab';
-import PlayerTab from './tabs/PlayerTab';
-import PlaylistsTab from './tabs/PlaylistsTab';
-import VisualizerTab from './tabs/VisualizerTab';
 import api from './api';
+
+const LibraryTab = React.lazy(() => import('./tabs/LibraryTab'));
+const UploadTab = React.lazy(() => import('./tabs/UploadTab'));
+const RankingsTab = React.lazy(() => import('./tabs/RankingsTab'));
+const StatsTab = React.lazy(() => import('./tabs/StatsTab'));
+const SettingsTab = React.lazy(() => import('./tabs/SettingsTab'));
+const PlayerTab = React.lazy(() => import('./tabs/PlayerTab'));
+const PlaylistsTab = React.lazy(() => import('./tabs/PlaylistsTab'));
+const VisualizerTab = React.lazy(() => import('./tabs/VisualizerTab'));
 
 const BATCH_SIZE = 5;
 
@@ -43,10 +44,10 @@ function App() {
   const [showWinLoss, setShowWinLoss] = useState(() => localStorage.getItem("imade_showWinLoss") !== "0");
   const [rowDensity, setRowDensity] = useState(() => localStorage.getItem("imade_rowDensity") || "comfortable");
 
-  const persistSetting = (key, val, setter) => { setter(val); localStorage.setItem("imade_" + key, String(val)); };
+  const persistSetting = useCallback((key, val, setter) => { setter(val); localStorage.setItem("imade_" + key, String(val)); }, []);
 
-  const persistIntro = (v) => { setHasSeenIntro(v); if (v) localStorage.setItem("imade_seenIntro", "1"); };
-  const persistPhase2 = (v) => { setHasSeenPhase2(v); if (v) localStorage.setItem("imade_seenPhase2", "1"); };
+  const persistIntro = useCallback((v) => { setHasSeenIntro(v); if (v) localStorage.setItem("imade_seenIntro", "1"); }, []);
+  const persistPhase2 = useCallback((v) => { setHasSeenPhase2(v); if (v) localStorage.setItem("imade_seenPhase2", "1"); }, []);
   const scrollPositions = useRef({});
   const [playerQueue, setPlayerQueue] = useState([]);
   const [playerQueueIdx, setPlayerQueueIdx] = useState(0);
@@ -86,7 +87,7 @@ function App() {
 
   const showToast = useCallback((msg, ms) => { setToast(msg); setTimeout(() => setToast(null), ms || 2500); }, []);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     try {
       const [s, g, c, p] = await Promise.all([
         api.get("/api/songs"),
@@ -99,9 +100,14 @@ function App() {
       console.error("Failed to load data:", e);
       showToast("Failed to connect to server");
     }
-  };
+  }, [showToast]);
 
   useEffect(() => { refresh().then(()=>setLoaded(true)); }, []);
+
+  // Auto-dismiss intro for returning users who already have songs
+  useEffect(() => {
+    if (loaded && songs.length > 0 && !hasSeenIntro) persistIntro(true);
+  }, [loaded, songs.length, hasSeenIntro, persistIntro]);
 
   useEffect(() => {
     api.get("/api/update-check").then(data => {
@@ -171,12 +177,20 @@ function App() {
       const delta = Math.min(audio.currentTime - last.time, 2);
       if (delta > 0.1) {
         listenTimesRef.current = { ...listenTimesRef.current, [song.id]: (listenTimesRef.current[song.id] || 0) + delta };
-        setListenTimes(listenTimesRef.current);
       }
     }
     lastTimeUpdateRef.current = { src: srcKey, time: audio.currentTime };
   }, [audio.currentTime, audio.playingSrc, songs]);
 
+  // Sync listen times ref to state every 5 seconds (instead of on every timeupdate)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setListenTimes({ ...listenTimesRef.current });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Persist listen times to localStorage every 10 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       const data = listenTimesRef.current;
@@ -232,7 +246,7 @@ function App() {
     return () => ro.disconnect();
   }, [uploading]);
 
-  const startUpload = async (filesToUpload) => {
+  const startUpload = useCallback(async (filesToUpload) => {
     if (!filesToUpload.length || uploading) return;
     setUploading(true);
     setUploadDone(false);
@@ -269,20 +283,20 @@ function App() {
     } else if (!uploadAbortRef.current) {
       showToast("Uploaded " + total + " song" + (total > 1 ? "s" : ""));
     }
-  };
+  }, [uploading, refresh, showToast]);
 
-  const cancelUpload = () => { uploadAbortRef.current = true; };
+  const cancelUpload = useCallback(() => { uploadAbortRef.current = true; }, []);
 
   if (!loaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",color:"#6b7280"}}>Loading...</div>;
 
   const tabs = [
-    { id: "visualizer", label: "Visualizer" },
     { id: "library", label: "Library", count: songs.length },
-    { id: "player", label: "Player" },
     { id: "upload", label: "Upload" },
-    { id: "playlists", label: "Playlists", count: playlists.length },
     { id: "battle", label: "Compare" },
     { id: "rankings", label: "Rankings" },
+    { id: "player", label: "Player" },
+    { id: "visualizer", label: "Visualizer" },
+    { id: "playlists", label: "Playlists", count: playlists.length },
     { id: "stats", label: "Stats" },
     { id: "genres", label: "Settings" },
   ];
@@ -382,11 +396,44 @@ function App() {
         </div>
       )}
 
+      {/* Welcome modal for new users */}
+      {!hasSeenIntro && loaded && songs.length === 0 && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={() => persistIntro(true)}>
+          <div onClick={e => e.stopPropagation()} style={{background:"#14142a",border:"1px solid #2a2a45",borderRadius:20,padding:"40px 32px",maxWidth:440,width:"100%",animation:"fadeUp 0.3s ease-out",boxShadow:"0 20px 60px rgba(0,0,0,0.5)"}}>
+            <div style={{textAlign:"center",marginBottom:28}}>
+              <h2 style={{margin:"0 0 8px",color:"#e2e8f0",fontSize:24,fontWeight:700,background:"linear-gradient(135deg,#e2e8f0,#818cf8)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>Welcome to iMade</h2>
+              <p style={{color:"#8a8aa0",fontSize:14,margin:0}}>Rank your music library with head-to-head comparisons</p>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:16,marginBottom:28}}>
+              {[
+                { step: "1", title: "Upload", desc: "Add songs from your library" },
+                { step: "2", title: "Compare", desc: "Pick winners in quick matchups" },
+                { step: "3", title: "Rankings", desc: "See your personal top charts" },
+              ].map(s => (
+                <div key={s.step} style={{display:"flex",alignItems:"center",gap:14}}>
+                  <span style={{width:32,height:32,borderRadius:8,background:"linear-gradient(135deg,#4338ca,#6366f1)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:14,fontWeight:700,flexShrink:0}}>{s.step}</span>
+                  <div>
+                    <div style={{color:"#e2e8f0",fontSize:14,fontWeight:600}}>{s.title}</div>
+                    <div style={{color:"#6b6b80",fontSize:12}}>{s.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => { persistIntro(true); switchTab("upload"); }}
+              style={{width:"100%",padding:"13px",borderRadius:12,background:"linear-gradient(135deg,#4338ca,#6366f1)",border:"none",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer",boxShadow:"0 4px 20px rgba(99,102,241,0.3)"}}>
+              Get Started
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Visualizer — full-width, outside constrained content */}
       {tab === "visualizer" && (
-        <div key="visualizer" style={{padding:"8px 8px 0",animation:"tabFadeIn 0.2s ease-out"}}>
-          <VisualizerTab songs={songs} />
-        </div>
+        <React.Suspense fallback={<div style={{textAlign:"center",padding:40,color:"#6b7280"}}>Loading...</div>}>
+          <div key="visualizer" style={{padding:"8px 8px 0",animation:"tabFadeIn 0.2s ease-out"}}>
+            <VisualizerTab songs={songs} />
+          </div>
+        </React.Suspense>
       )}
 
       {/* Content */}
@@ -400,6 +447,7 @@ function App() {
         </div>
         {/* All other tabs get fade-in animation */}
         {tab !== "battle" && tab !== "visualizer" && (
+          <React.Suspense fallback={<div style={{textAlign:"center",padding:40,color:"#6b7280"}}>Loading...</div>}>
           <div key={tab} style={{animation:"tabFadeIn 0.2s ease-out"}}>
             {tab === "player" && <PlayerTab songs={songs} genres={genres} comparisons={comparisons} onRefresh={refresh} showToast={showToast} switchTab={switchTab}
               queue={playerQueue} setQueue={setPlayerQueue} queueIdx={playerQueueIdx} setQueueIdx={setPlayerQueueIdx}
@@ -437,6 +485,7 @@ function App() {
               listenTimes={listenTimes} setListenTimes={setListenTimes} listenTimesRef={listenTimesRef}
               />}
           </div>
+          </React.Suspense>
         )}
       </div>
     </div>

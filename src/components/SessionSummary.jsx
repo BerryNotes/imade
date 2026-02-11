@@ -1,5 +1,3 @@
-import React from 'react';
-
 function SessionSummary({ data, songs, compCount, placementMin, onNewSession, onDone }) {
   if (!data) return null;
   const d = data;
