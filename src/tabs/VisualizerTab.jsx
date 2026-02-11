@@ -422,7 +422,7 @@ function VisualizerTab({ songs, onFullscreen }) {
     // Cap at 13kHz — bins above this are mostly empty noise
     const sampleRate = 44100;
     const binHz = sampleRate / 512; // ~86Hz per bin
-    const maxBin = Math.min(Math.floor(13000 / binHz), freqData.length);
+    const maxBin = Math.min(Math.floor(16000 / binHz), freqData.length);
 
     // Build points from frequency data
     const pts = [];
@@ -526,7 +526,7 @@ function VisualizerTab({ songs, onFullscreen }) {
     const col = spectroWriteRef.current % Math.round(w);
     const sampleRate = 44100;
     const binHz = sampleRate / 512;
-    const binCount = Math.min(Math.floor(13000 / binHz), freqData.length);
+    const binCount = Math.min(Math.floor(16000 / binHz), freqData.length);
 
     for (let i = 0; i < binCount; i++) {
       const val = freqData[i] / 255;
@@ -573,7 +573,7 @@ function VisualizerTab({ songs, onFullscreen }) {
     ctx.fillStyle = 'rgba(148,163,184,0.5)';
     ctx.font = '11px monospace';
     ctx.textAlign = 'left';
-    const maxFreq = 13000;
+    const maxFreq = 16000;
     const labels = [100, 500, 1000, 2000, 5000, 10000];
     for (const freq of labels) {
       if (freq > maxFreq) continue;
