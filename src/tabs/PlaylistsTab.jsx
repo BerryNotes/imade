@@ -244,10 +244,17 @@ function PlaylistsTab({ songs, playlists, genres, comparisons, onRefresh, showTo
       )}
 
       {/* Playlist list */}
-      {playlists.length === 0 && !creating && (
-        <div style={{textAlign:"center",padding:60}}>
-          <div style={{fontSize:40,marginBottom:12}}>♪</div>
-          <p style={{color:"#6b7280",fontSize:16}}>No playlists yet</p>
+      {playlists.length === 0 && !creating && !smartOpen && (
+        <div style={{textAlign:"center",padding:"60px 20px",animation:"fadeUp 0.5s ease-out"}}>
+          <div style={{fontSize:48,marginBottom:16}}>♪</div>
+          <p style={{color:"#e2e8f0",fontSize:18,fontWeight:600,marginBottom:6}}>No playlists yet</p>
+          <p style={{color:"#6b6b80",fontSize:13,marginBottom:24,lineHeight:1.6}}>Create a custom playlist or generate one from your rankings</p>
+          <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+            <button onClick={() => setCreating(true)}
+              style={{background:"linear-gradient(135deg,#4338ca,#6366f1)",border:"none",borderRadius:10,padding:"10px 20px",color:"#fff",fontSize:13,cursor:"pointer",fontWeight:600}}>+ new playlist</button>
+            <button onClick={() => setSmartOpen(true)}
+              style={{background:"none",border:"1px solid #2a2a45",borderRadius:10,padding:"10px 20px",color:"#818cf8",fontSize:13,cursor:"pointer"}}>from rankings</button>
+          </div>
         </div>
       )}
       <div style={{display:"flex",flexDirection:"column",gap:8}}>

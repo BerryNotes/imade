@@ -48,7 +48,7 @@ function SongEditForm({ song, genres, onSave, onCancel }) {
           <label style={labelStyle}>Audio File</label>
           <label style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:16,background:"#12121f",border:"2px dashed #2a2a45",borderRadius:12,cursor:"pointer",color:(audioFile||song?.audioFile)?"#818cf8":"#6b7280",fontSize:14,transition:"all 0.2s"}}
             onMouseEnter={e=>e.currentTarget.style.borderColor="#4338ca"} onMouseLeave={e=>e.currentTarget.style.borderColor="#2a2a45"}>
-            <input type="file" accept="audio/mpeg,audio/wav,audio/ogg,audio/flac,audio/aac,audio/mp4,audio/webm,audio/x-m4a" onChange={e=>{const f=e.target.files?.[0];if(f){if(f.type==="audio/midi"||f.type==="audio/x-midi"||f.name.toLowerCase().endsWith(".mid")||f.name.toLowerCase().endsWith(".midi")){return}setAudioFile(f);setAudioName(f.name)}}} style={{display:"none"}} />
+            <input type="file" accept="audio/mpeg,audio/wav,audio/ogg,audio/flac,audio/aac,audio/mp4,audio/webm,audio/x-m4a" onChange={e=>{const f=e.target.files?.[0];if(f){setAudioFile(f);setAudioName(f.name)}}} style={{display:"none"}} />
             {audioFile?"♪ "+audioName:song?.audioName?"♪ "+song.audioName+" (keep)":"↑ Upload audio"}
           </label>
         </div>

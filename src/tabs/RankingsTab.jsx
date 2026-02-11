@@ -10,6 +10,7 @@ function RankingsTab({ songs, comparisons, onRefresh, showToast, lastUpdateCompC
   const ranking = useRanking(songs, comparisons);
   const tournament = ranking;
   const [filterGenre, setFilterGenre] = useState("All");
+  const [sortOrder, setSortOrder] = useState("desc");
   const [dragId, setDragId] = useState(null);
   const [dragOverIdx, setDragOverIdx] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -160,13 +161,21 @@ function RankingsTab({ songs, comparisons, onRefresh, showToast, lastUpdateCompC
     </div>
   );
 
-  const hasNoGenreSongs = songs.some(s => !s.genre);
-  const usedGenres = ["All", ...(hasNoGenreSongs ? ["No Genre"] : []), ...new Set(songs.map(s=>s.genre).filter(Boolean))];
-  const allFiltered = filterGenre === "All" ? tournament.standings
-    : filterGenre === "No Genre" ? tournament.standings.filter(s => !s.genre)
-    : tournament.standings.filter(s => s.genre === filterGenre);
-  const filtered = allFiltered.filter(s => s.totalComparisons > 0);
-  const unrankedInFilter = allFiltered.filter(s => s.totalComparisons === 0).length;
+  const usedGenres = useMemo(() => {
+    const hasNoGenreSongs = songs.some(s => !s.genre);
+    return ["All", ...(hasNoGenreSongs ? ["No Genre"] : []), ...new Set(songs.map(s=>s.genre).filter(Boolean))];
+  }, [songs]);
+
+  const { filtered, unrankedInFilter } = useMemo(() => {
+    const allFiltered = filterGenre === "All" ? tournament.standings
+      : filterGenre === "No Genre" ? tournament.standings.filter(s => !s.genre)
+      : tournament.standings.filter(s => s.genre === filterGenre);
+    const ranked = allFiltered.filter(s => s.totalComparisons > 0);
+    return {
+      filtered: sortOrder === "asc" ? [...ranked].reverse() : ranked,
+      unrankedInFilter: allFiltered.filter(s => s.totalComparisons === 0).length,
+    };
+  }, [songs, tournament.standings, filterGenre, sortOrder]);
   const now = Date.now();
   const getStaleDays = (ts) => ts ? Math.floor((now - ts) / 86400000) : Infinity;
   const unrankedCount = tournament.unrankedCount || 0;
@@ -234,6 +243,12 @@ function RankingsTab({ songs, comparisons, onRefresh, showToast, lastUpdateCompC
           <div style={{color:"#8a8aa0",fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em",marginTop:4}}>Genre</div>
           <select value={filterGenre} onChange={e=>setFilterGenre(e.target.value)} style={{background:filterGenre !== "All" ? "#4338ca20" : "#14142a",border:"1px solid "+(filterGenre !== "All" ? "#818cf8" : "#2a2a45"),borderRadius:10,padding:"9px 10px",color:filterGenre !== "All" ? "#818cf8" : "#e2e8f0",fontSize:12,cursor:"pointer",appearance:"none",width:"100%",fontWeight:filterGenre !== "All" ? 600 : 400}}>
             {usedGenres.map(g=><option key={g} value={g}>{g==="All"?"Any":g==="No Genre"?"No genre":g}</option>)}
+          </select>
+
+          <div style={{color:"#8a8aa0",fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em",marginTop:4}}>Sorting</div>
+          <select value={sortOrder} onChange={e=>setSortOrder(e.target.value)} style={{background:sortOrder !== "desc" ? "#4338ca20" : "#14142a",border:"1px solid "+(sortOrder !== "desc" ? "#818cf8" : "#2a2a45"),borderRadius:10,padding:"9px 10px",color:sortOrder !== "desc" ? "#818cf8" : "#e2e8f0",fontSize:12,cursor:"pointer",appearance:"none",width:"100%",fontWeight:sortOrder !== "desc" ? 600 : 400}}>
+            <option value="desc">Highest Elo</option>
+            <option value="asc">Lowest Elo</option>
           </select>
 
           {saving && <span style={{color:"#818cf8",fontSize:11,marginTop:8}}>saving...</span>}

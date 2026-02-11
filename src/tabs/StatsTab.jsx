@@ -698,7 +698,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
 
         {/* ===== IMPROVEMENT TAB ===== */}
         <div style={{display: statsSubTab === "improvement" ? "block" : "none"}}>
-          {/* === Win Rate Ring === */}
+          {/* === Above Average Ring === */}
           {winRateTrends && (
             <div ref={cardRef("improvement",0)} style={{...cardStyle,marginBottom:16,display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
               <div style={{textAlign:"center",minWidth:100}}>
@@ -716,13 +716,14 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
                 </div>
               </div>
               <div style={{flex:1,minWidth:180}}>
-                <div style={headStyle}>win rate</div>
+                <div style={headStyle}>above average</div>
                 <div style={{fontSize:12}}>
                   <span style={{color:winRateTrends.newerWinRate > winRateTrends.olderWinRate ? "#22c55e" : "#f59e0b",fontWeight:600}}>
-                    Your newer songs win {Math.round(winRateTrends.newerWinRate * 100)}% of the time
+                    {Math.round(winRateTrends.newerWinRate * 100)}% of your newer songs rank above average
                   </span>
-                  <span style={{color:"#6b7280"}}> vs {Math.round(winRateTrends.olderWinRate * 100)}% for older songs</span>
+                  <span style={{color:"#6b7280"}}> vs {Math.round(winRateTrends.olderWinRate * 100)}% of older songs</span>
                 </div>
+                <div style={{color:"#5a5a70",fontSize:11,marginTop:4}}>Songs with Elo above your library's mean score</div>
               </div>
             </div>
           )}

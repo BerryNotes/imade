@@ -18,7 +18,15 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
   const [confirmDel, setConfirmDel] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showExportPlaylists, setShowExportPlaylists] = useState(false);
+  const [saved, setSaved] = useState(false);
   const ranking = useRanking(songs, comparisons);
+
+  // Draft state — only committed to parent on Save
+  const [draftVariance, setDraftVariance] = useState(showVariance);
+  const [draftWinLoss, setDraftWinLoss] = useState(showWinLoss);
+  const [draftSessionLength, setDraftSessionLength] = useState(sessionLength);
+  const [draftBracketSize, setDraftBracketSize] = useState(bracketSize);
+  const [draftRowDensity, setDraftRowDensity] = useState(rowDensity);
 
   const addGenre = async () => {
     if (!newGenre.trim()) return;
@@ -155,14 +163,14 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
             <div style={secT}>🎯 Sessions</div>
             <div style={{marginBottom:16}}>
               <div style={{color:"#e2e8f0",fontSize:13,marginBottom:6}}>Session length</div>
-              <div style={{color:"#6b6b80",fontSize:11,marginBottom:8}}>Controls classic comparisons per round ({sessionLength === "short" ? "2" : sessionLength === "medium" ? "3" : "5"} per round)</div>
-              <SegmentPicker value={sessionLength} onChange={setSessionLength}
+              <div style={{color:"#6b6b80",fontSize:11,marginBottom:8}}>Controls classic comparisons per round ({draftSessionLength === "short" ? "2" : draftSessionLength === "medium" ? "3" : "5"} per round)</div>
+              <SegmentPicker value={draftSessionLength} onChange={setDraftSessionLength}
                 options={[{value:"short",label:"Short"},{value:"medium",label:"Medium"},{value:"long",label:"Long"}]} />
             </div>
             <div>
               <div style={{color:"#e2e8f0",fontSize:13,marginBottom:6}}>Bracket size</div>
               <div style={{color:"#6b6b80",fontSize:11,marginBottom:8}}>Number of songs in each bracket tournament</div>
-              <SegmentPicker value={bracketSize} onChange={setBracketSize}
+              <SegmentPicker value={draftBracketSize} onChange={setDraftBracketSize}
                 options={[{value:4,label:"4"},{value:8,label:"8"},{value:16,label:"16"}]} />
             </div>
           </div>
@@ -170,16 +178,31 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
           {/* Display */}
           <div style={sec}>
             <div style={secT}>🎨 Display</div>
-            <Toggle value={showVariance} onChange={setShowVariance} label="Show Elo variance" desc="Display ± range next to Elo scores in rankings" />
+            <Toggle value={draftVariance} onChange={setDraftVariance} label="Show Elo variance" desc="Display ± range next to Elo scores in rankings" />
             <div style={{height:1,background:"#1e1e35",margin:"4px 0"}} />
-            <Toggle value={showWinLoss} onChange={setShowWinLoss} label="Show win/loss record" desc="Display W/L next to songs in rankings" />
+            <Toggle value={draftWinLoss} onChange={setDraftWinLoss} label="Show win/loss record" desc="Display W/L next to songs in rankings" />
             <div style={{height:1,background:"#1e1e35",margin:"4px 0"}} />
             <div style={{padding:"8px 0"}}>
               <div style={{color:"#e2e8f0",fontSize:13,marginBottom:6}}>Row density</div>
               <div style={{color:"#6b6b80",fontSize:11,marginBottom:8}}>Song row size in library and rankings</div>
-              <SegmentPicker value={rowDensity} onChange={setRowDensity}
+              <SegmentPicker value={draftRowDensity} onChange={setDraftRowDensity}
                 options={[{value:"compact",label:"Compact"},{value:"comfortable",label:"Comfortable"}]} />
             </div>
+          </div>
+
+          {/* Save button */}
+          <div style={{display:"flex",justifyContent:"flex-end",marginTop:4}}>
+            <button onClick={() => {
+              setShowVariance(draftVariance);
+              setShowWinLoss(draftWinLoss);
+              setSessionLength(draftSessionLength);
+              setBracketSize(draftBracketSize);
+              setRowDensity(draftRowDensity);
+              setSaved(true); showToast("Settings saved"); setTimeout(() => setSaved(false), 2000);
+            }}
+              style={{background: saved ? "linear-gradient(135deg,#22c55e,#16a34a)" : "linear-gradient(135deg,#4338ca,#6366f1)",border:"none",borderRadius:10,padding:"10px 24px",color:"#fff",fontSize:13,cursor:"pointer",fontWeight:600,transition:"background 0.2s"}}>
+              {saved ? "Saved" : "Save"}
+            </button>
           </div>
         </div>
       )}

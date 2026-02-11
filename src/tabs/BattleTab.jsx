@@ -225,8 +225,16 @@ function BattleTab({ songs, comparisons, onRefresh, showToast, savedPair, setSav
 
   // ========== RENDERING ==========
   if (songs.length < 2) return (
-    <div style={{textAlign:"center",padding:80}}>
-      <p style={{color:"#8a8aa0",fontSize:18}}>Need at least 2 songs to start comparing</p>
+    <div style={{textAlign:"center",padding:"60px 20px",animation:"fadeUp 0.5s ease-out"}}>
+      <div style={{fontSize:48,marginBottom:16}}>🎯</div>
+      <p style={{color:"#e2e8f0",fontSize:18,fontWeight:600,marginBottom:6}}>
+        {songs.length === 0 ? "No songs uploaded yet" : "Just one more song needed"}
+      </p>
+      <p style={{color:"#6b6b80",fontSize:13,lineHeight:1.6,maxWidth:360,margin:"0 auto"}}>
+        {songs.length === 0
+          ? "Upload at least 2 songs to start comparing them head-to-head and building your personal rankings."
+          : "Add one more song to your library and you can start ranking them with quick head-to-head matchups."}
+      </p>
     </div>
   );
 

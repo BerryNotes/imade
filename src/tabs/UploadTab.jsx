@@ -7,17 +7,8 @@ function UploadTab({ onRefresh, genres, songs, uploadFiles, setUploadFiles, uplo
 
   const existingNames = new Set(songs.map(s => (s.audioName || "").toLowerCase()));
 
-  const BLOCKED_TYPES = ["audio/midi", "audio/x-midi"];
-  const BLOCKED_EXTS = [".mid", ".midi"];
-
   const handleFiles = (fileList) => {
-    const allAudio = Array.from(fileList).filter(f => f.type.startsWith("audio/"));
-    const midiFiles = allAudio.filter(f => BLOCKED_TYPES.includes(f.type) || BLOCKED_EXTS.some(ext => f.name.toLowerCase().endsWith(ext)));
-    const audioFiles = allAudio.filter(f => !BLOCKED_TYPES.includes(f.type) && !BLOCKED_EXTS.some(ext => f.name.toLowerCase().endsWith(ext)));
-
-    if (midiFiles.length > 0 && showToast) {
-      showToast("⚠️ " + midiFiles.length + " MIDI file" + (midiFiles.length > 1 ? "s" : "") + " skipped — MIDI is not supported");
-    }
+    const audioFiles = Array.from(fileList).filter(f => f.type.startsWith("audio/"));
     if (!audioFiles.length) return;
 
     const newDupes = [];

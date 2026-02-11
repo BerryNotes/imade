@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useGlobalAudio } from '../components/AudioProvider';
 import api from '../api';
 import Modal from '../components/Modal';
@@ -55,9 +55,12 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
     setBatchGenre("");
   };
 
-  const hasNoGenreSongs = songs.some(s => !s.genre);
-  const usedGenres = ["All", ...(hasNoGenreSongs ? ["No Genre"] : []), ...new Set(songs.map(s=>s.genre).filter(Boolean))];
-  const filtered = songs
+  const usedGenres = useMemo(() => {
+    const hasNoGenreSongs = songs.some(s => !s.genre);
+    return ["All", ...(hasNoGenreSongs ? ["No Genre"] : []), ...new Set(songs.map(s=>s.genre).filter(Boolean))];
+  }, [songs]);
+
+  const filtered = useMemo(() => songs
     .filter(s => {
       if (search && !s.title.toLowerCase().includes(search.toLowerCase())) return false;
       if (filterGenre === "No Genre" && s.genre) return false;
@@ -72,7 +75,7 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
         case "listened": return (listenTimes[b.id]||0) - (listenTimes[a.id]||0);
         default: return 0;
       }
-    });
+    }), [songs, search, filterGenre, sortBy, listenTimes]);
 
   return (
     <div style={{display:"flex",gap:16,alignItems:"flex-start"}}>

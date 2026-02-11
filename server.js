@@ -51,6 +51,42 @@ const writeJSON = (f, d) => {
   fs.renameSync(tmp, f);
 };
 
+// In-memory cache — pre-warmed at startup, updated on writes
+const cache = {};
+[SONGS_FILE, GENRES_FILE, COMPARISONS_FILE, PLAYLISTS_FILE].forEach(f => { cache[f] = readJSON(f); });
+
+const readJSONAsync = async (f) => {
+  if (cache[f]) return cache[f];
+  try {
+    const raw = await fs.promises.readFile(f, "utf-8");
+    const data = JSON.parse(raw);
+    cache[f] = data;
+    return data;
+  } catch (e) {
+    const backup = f + ".bak";
+    try {
+      await fs.promises.access(backup);
+      console.error(`Warning: ${path.basename(f)} corrupted, restoring from backup`);
+      const raw = await fs.promises.readFile(backup, "utf-8");
+      const data = JSON.parse(raw);
+      await fs.promises.writeFile(f, JSON.stringify(data, null, 2));
+      cache[f] = data;
+      return data;
+    } catch {
+      return [];
+    }
+  }
+};
+
+const writeJSONAsync = async (f, d) => {
+  cache[f] = d;
+  const json = JSON.stringify(d, null, 2);
+  const tmp = f + ".tmp";
+  await fs.promises.writeFile(tmp, json);
+  try { await fs.promises.copyFile(f, f + ".bak"); } catch {}
+  await fs.promises.rename(tmp, f);
+};
+
 // Per-file lock to prevent concurrent read-modify-write races
 const fileLocks = new Map();
 const withLock = (f, fn) => {
@@ -80,10 +116,10 @@ const upload = multer({
 
 // ---- SONGS ----
 
-app.get("/api/songs", (req, res) => res.json(readJSON(SONGS_FILE)));
+app.get("/api/songs", async (req, res) => res.json(await readJSONAsync(SONGS_FILE)));
 
-app.post("/api/songs/bulk", upload.array("audio", 200), (req, res) => {
-  const songs = readJSON(SONGS_FILE);
+app.post("/api/songs/bulk", upload.array("audio", 200), async (req, res) => {
+  const songs = await readJSONAsync(SONGS_FILE);
   const newSongs = [];
   let dates = {};
   try { dates = JSON.parse(req.body.dates || "{}"); } catch (e) {}
@@ -105,12 +141,12 @@ app.post("/api/songs/bulk", upload.array("audio", 200), (req, res) => {
   }
 
   songs.unshift(...newSongs);
-  writeJSON(SONGS_FILE, songs);
+  await writeJSONAsync(SONGS_FILE, songs);
   res.json(newSongs);
 });
 
-app.post("/api/songs", upload.single("audio"), (req, res) => {
-  const songs = readJSON(SONGS_FILE);
+app.post("/api/songs", upload.single("audio"), async (req, res) => {
+  const songs = await readJSONAsync(SONGS_FILE);
   const song = {
     id: Date.now().toString(),
     title: req.body.title, date: req.body.date,
@@ -119,12 +155,12 @@ app.post("/api/songs", upload.single("audio"), (req, res) => {
     audioName: req.file ? req.file.originalname : null,
   };
   songs.unshift(song);
-  writeJSON(SONGS_FILE, songs);
+  await writeJSONAsync(SONGS_FILE, songs);
   res.json(song);
 });
 
-app.put("/api/songs/:id", upload.single("audio"), (req, res) => {
-  const songs = readJSON(SONGS_FILE);
+app.put("/api/songs/:id", upload.single("audio"), async (req, res) => {
+  const songs = await readJSONAsync(SONGS_FILE);
   const idx = songs.findIndex((s) => s.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: "Not found" });
   if (req.file && songs[idx].audioFile) {
@@ -144,79 +180,79 @@ app.put("/api/songs/:id", upload.single("audio"), (req, res) => {
     genre: req.body.genre ?? songs[idx].genre,
     ...(req.file ? { audioFile: "/uploads/" + req.file.filename, audioName: req.file.originalname } : {}),
   };
-  writeJSON(SONGS_FILE, songs);
+  await writeJSONAsync(SONGS_FILE, songs);
   res.json(songs[idx]);
 });
 
 // Batch genre update
-app.patch("/api/songs/batch-genre", (req, res) => {
+app.patch("/api/songs/batch-genre", async (req, res) => {
   const { ids, genre } = req.body;
   if (!ids || !Array.isArray(ids)) return res.status(400).json({ error: "ids array required" });
-  const songs = readJSON(SONGS_FILE);
+  const songs = await readJSONAsync(SONGS_FILE);
   const idSet = new Set(ids);
   for (const s of songs) {
     if (idSet.has(s.id)) s.genre = genre || "";
   }
-  writeJSON(SONGS_FILE, songs);
+  await writeJSONAsync(SONGS_FILE, songs);
   res.json({ updated: ids.length });
 });
 
-app.delete("/api/songs/:id", (req, res) => {
-  let songs = readJSON(SONGS_FILE);
+app.delete("/api/songs/:id", async (req, res) => {
+  let songs = await readJSONAsync(SONGS_FILE);
   const song = songs.find((s) => s.id === req.params.id);
   if (song?.audioFile) {
     const p = path.join(BASE_DIR, song.audioFile);
     if (fs.existsSync(p)) fs.unlinkSync(p);
   }
   songs = songs.filter((s) => s.id !== req.params.id);
-  writeJSON(SONGS_FILE, songs);
-  let comps = readJSON(COMPARISONS_FILE);
+  await writeJSONAsync(SONGS_FILE, songs);
+  let comps = await readJSONAsync(COMPARISONS_FILE);
   comps = comps.filter((c) => c.songA !== req.params.id && c.songB !== req.params.id);
-  writeJSON(COMPARISONS_FILE, comps);
+  await writeJSONAsync(COMPARISONS_FILE, comps);
   res.json({ success: true });
 });
 
 // ---- GENRES ----
 
-app.get("/api/genres", (req, res) => res.json(readJSON(GENRES_FILE)));
+app.get("/api/genres", async (req, res) => res.json(await readJSONAsync(GENRES_FILE)));
 
-app.post("/api/genres", (req, res) => {
-  const genres = readJSON(GENRES_FILE);
+app.post("/api/genres", async (req, res) => {
+  const genres = await readJSONAsync(GENRES_FILE);
   const name = (req.body.name || "").trim();
   if (!name) return res.status(400).json({ error: "Name required" });
-  if (!genres.includes(name)) { genres.push(name); writeJSON(GENRES_FILE, genres); }
+  if (!genres.includes(name)) { genres.push(name); await writeJSONAsync(GENRES_FILE, genres); }
   res.json(genres);
 });
 
-app.delete("/api/genres/:name", (req, res) => {
-  let genres = readJSON(GENRES_FILE);
+app.delete("/api/genres/:name", async (req, res) => {
+  let genres = await readJSONAsync(GENRES_FILE);
   genres = genres.filter((g) => g !== decodeURIComponent(req.params.name));
-  writeJSON(GENRES_FILE, genres);
+  await writeJSONAsync(GENRES_FILE, genres);
   res.json(genres);
 });
 
-app.put("/api/genres/:name", (req, res) => {
+app.put("/api/genres/:name", async (req, res) => {
   const oldName = decodeURIComponent(req.params.name);
   const newName = (req.body.name || "").trim();
   if (!newName) return res.status(400).json({ error: "Name required" });
-  let genres = readJSON(GENRES_FILE);
+  let genres = await readJSONAsync(GENRES_FILE);
   const idx = genres.indexOf(oldName);
   if (idx !== -1) genres[idx] = newName;
   else if (!genres.includes(newName)) genres.push(newName);
-  writeJSON(GENRES_FILE, genres);
+  await writeJSONAsync(GENRES_FILE, genres);
   // Update all songs with old genre name
-  const songs = readJSON(SONGS_FILE);
+  const songs = await readJSONAsync(SONGS_FILE);
   songs.forEach(s => { if (s.genre === oldName) s.genre = newName; });
-  writeJSON(SONGS_FILE, songs);
+  await writeJSONAsync(SONGS_FILE, songs);
   res.json(genres);
 });
 
 // ---- COMPARISONS ----
 
-app.get("/api/comparisons", (req, res) => res.json(readJSON(COMPARISONS_FILE)));
+app.get("/api/comparisons", async (req, res) => res.json(await readJSONAsync(COMPARISONS_FILE)));
 
-app.post("/api/comparisons", (req, res) => {
-  const comps = readJSON(COMPARISONS_FILE);
+app.post("/api/comparisons", async (req, res) => {
+  const comps = await readJSONAsync(COMPARISONS_FILE);
   const { songA, songB, winner, source } = req.body;
   if (!songA || !songB || !winner) return res.status(400).json({ error: "Missing fields" });
   const filtered = comps.filter(
@@ -225,19 +261,19 @@ app.post("/api/comparisons", (req, res) => {
   const entry = { songA, songB, winner, timestamp: Date.now() };
   if (source) entry.source = source;
   filtered.push(entry);
-  writeJSON(COMPARISONS_FILE, filtered);
+  await writeJSONAsync(COMPARISONS_FILE, filtered);
   res.json(filtered);
 });
 
-app.delete("/api/comparisons/last", (req, res) => {
-  const comps = readJSON(COMPARISONS_FILE);
+app.delete("/api/comparisons/last", async (req, res) => {
+  const comps = await readJSONAsync(COMPARISONS_FILE);
   if (comps.length > 0) comps.pop();
-  writeJSON(COMPARISONS_FILE, comps);
+  await writeJSONAsync(COMPARISONS_FILE, comps);
   res.json(comps);
 });
 
-app.delete("/api/comparisons", (req, res) => {
-  writeJSON(COMPARISONS_FILE, []);
+app.delete("/api/comparisons", async (req, res) => {
+  await writeJSONAsync(COMPARISONS_FILE, []);
   res.json([]);
 });
 
@@ -267,9 +303,9 @@ const computeElo = (songs, comps) => {
   return elo;
 };
 
-app.get("/api/rankings", (req, res) => {
-  const songs = readJSON(SONGS_FILE);
-  const comps = readJSON(COMPARISONS_FILE);
+app.get("/api/rankings", async (req, res) => {
+  const songs = await readJSONAsync(SONGS_FILE);
+  const comps = await readJSONAsync(COMPARISONS_FILE);
   const elo = computeElo(songs, comps);
   const totalPairs = (songs.length * (songs.length - 1)) / 2;
   const ranked = songs
@@ -284,9 +320,9 @@ app.get("/api/rankings", (req, res) => {
 
 // ---- EXPORT ----
 
-app.get("/api/export/m3u", (req, res) => {
-  const songs = readJSON(SONGS_FILE);
-  const comps = readJSON(COMPARISONS_FILE);
+app.get("/api/export/m3u", async (req, res) => {
+  const songs = await readJSONAsync(SONGS_FILE);
+  const comps = await readJSONAsync(COMPARISONS_FILE);
   const genre = req.query.genre || "";
   const limit = parseInt(req.query.limit, 10) || 0;
 
@@ -314,10 +350,10 @@ app.get("/api/export/m3u", (req, res) => {
 
 // ---- PLAYLISTS ----
 
-app.get("/api/playlists", (req, res) => res.json(readJSON(PLAYLISTS_FILE)));
+app.get("/api/playlists", async (req, res) => res.json(await readJSONAsync(PLAYLISTS_FILE)));
 
-app.post("/api/playlists", (req, res) => {
-  const playlists = readJSON(PLAYLISTS_FILE);
+app.post("/api/playlists", async (req, res) => {
+  const playlists = await readJSONAsync(PLAYLISTS_FILE);
   const pl = {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     name: req.body.name || "Untitled",
@@ -326,24 +362,24 @@ app.post("/api/playlists", (req, res) => {
   };
   if (req.body.smart) pl.smart = req.body.smart;
   playlists.push(pl);
-  writeJSON(PLAYLISTS_FILE, playlists);
+  await writeJSONAsync(PLAYLISTS_FILE, playlists);
   res.json(pl);
 });
 
-app.put("/api/playlists/:id", (req, res) => {
-  const playlists = readJSON(PLAYLISTS_FILE);
+app.put("/api/playlists/:id", async (req, res) => {
+  const playlists = await readJSONAsync(PLAYLISTS_FILE);
   const idx = playlists.findIndex(p => p.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: "Not found" });
   if (req.body.name !== undefined) playlists[idx].name = req.body.name;
   if (req.body.songIds !== undefined) playlists[idx].songIds = req.body.songIds;
-  writeJSON(PLAYLISTS_FILE, playlists);
+  await writeJSONAsync(PLAYLISTS_FILE, playlists);
   res.json(playlists[idx]);
 });
 
-app.delete("/api/playlists/:id", (req, res) => {
-  let playlists = readJSON(PLAYLISTS_FILE);
+app.delete("/api/playlists/:id", async (req, res) => {
+  let playlists = await readJSONAsync(PLAYLISTS_FILE);
   playlists = playlists.filter(p => p.id !== req.params.id);
-  writeJSON(PLAYLISTS_FILE, playlists);
+  await writeJSONAsync(PLAYLISTS_FILE, playlists);
   res.json(playlists);
 });
 
@@ -365,7 +401,7 @@ app.get("/api/backups", (req, res) => {
   res.json(dirs);
 });
 
-app.post("/api/backup/restore/:name", (req, res) => {
+app.post("/api/backup/restore/:name", async (req, res) => {
   const backupDir = path.join(BACKUPS_DIR, req.params.name);
   if (!fs.existsSync(backupDir)) return res.status(404).json({ error: "Backup not found" });
   for (const f of ["songs.json", "comparisons.json", "genres.json", "playlists.json"]) {
@@ -373,6 +409,8 @@ app.post("/api/backup/restore/:name", (req, res) => {
     const dest = path.join(DATA_DIR, f);
     if (fs.existsSync(src)) fs.copyFileSync(src, dest);
   }
+  // Invalidate cache after restore
+  [SONGS_FILE, GENRES_FILE, COMPARISONS_FILE, PLAYLISTS_FILE].forEach(f => { cache[f] = readJSON(f); });
   res.json({ restored: req.params.name });
 });
 
@@ -382,9 +420,9 @@ app.get("/api/comparisons/export", (req, res) => {
   res.download(COMPARISONS_FILE, "comparisons.json");
 });
 
-app.post("/api/comparisons/import", express.json({ limit: "50mb" }), (req, res) => {
+app.post("/api/comparisons/import", express.json({ limit: "50mb" }), async (req, res) => {
   if (!Array.isArray(req.body)) return res.status(400).json({ error: "Expected array" });
-  writeJSON(COMPARISONS_FILE, req.body);
+  await writeJSONAsync(COMPARISONS_FILE, req.body);
   res.json({ imported: req.body.length });
 });
 
