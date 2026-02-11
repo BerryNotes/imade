@@ -39,6 +39,25 @@ function VisualizerTab({ songs, onFullscreen }) {
 
   const currentSong = playingSrc ? songs.find(s => s.audioFile === playingSrc) : null;
 
+  // Number keys 1-8 switch visualizer mode
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+      const num = parseInt(e.key, 10);
+      if (num >= 1 && num <= MODES.length) {
+        e.preventDefault();
+        const m = MODES[num - 1];
+        setMode(m.id);
+        particlesRef.current = [];
+        orbitParticlesRef.current = [];
+        ringIndexRef.current = 0;
+        particleSpawnedRef.current = 0;
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
+
   // Close dropdown on outside click
   useEffect(() => {
     if (!dropdownOpen) return;
@@ -88,6 +107,8 @@ function VisualizerTab({ songs, onFullscreen }) {
   const ringIndexRef = useRef(0);     // counter for evenly distributing orbit particles
   const prevSongRef = useRef(null);   // detect song changes to reset particles
   const particleSpawnedRef = useRef(0); // total particles spawned this song (cap for one-round)
+  const waveBufferRef = useRef(null);  // scrolling waveform buffer
+  const waveWriteRef = useRef(0);      // write position in the buffer
   useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
   useEffect(() => { playingSrcRef.current = playingSrc; }, [playingSrc]);
 
@@ -116,7 +137,7 @@ function VisualizerTab({ songs, onFullscreen }) {
       const w = canvas.getBoundingClientRect().width;
       const h = canvas.getBoundingClientRect().height;
 
-      // No song at all — clear canvas, no visualization
+      // No song playing — clear canvas, no visualization
       if (!playingSrcRef.current) {
         ctx.clearRect(0, 0, w, h);
         particlesRef.current = [];
@@ -134,6 +155,8 @@ function VisualizerTab({ songs, onFullscreen }) {
       if (playingSrcRef.current !== prevSongRef.current) {
         for (const p of particlesRef.current) { p.exiting = true; }
         particleSpawnedRef.current = 0;
+        waveBufferRef.current = null;
+        waveWriteRef.current = 0;
         prevSongRef.current = playingSrcRef.current;
       }
 
@@ -175,9 +198,8 @@ function VisualizerTab({ songs, onFullscreen }) {
           laserCanvasRef.current = lc;
         }
         const lctx = lc.getContext('2d');
-        // Fade existing trails
-        lctx.fillStyle = 'rgba(0,0,0,0.15)';
-        lctx.fillRect(0, 0, cw, ch);
+        // Clear fully each frame — no trail/shadow aftereffect
+        lctx.clearRect(0, 0, cw, ch);
         // Draw onto trail canvas, then composite to main
         ctx.clearRect(0, 0, w, h);
         ctx.fillStyle = '#000';
@@ -342,29 +364,38 @@ function VisualizerTab({ songs, onFullscreen }) {
 
   const drawWaveform = (ctx, w, h, data) => {
     const mid = h / 2;
-    // Build very smooth points — few samples, wide averaging
-    const numPts = 50;
-    const binSize = Math.floor(data.length / numPts) * 2;
-    const raw = [];
-    for (let i = 0; i < numPts; i++) {
-      const start = Math.floor(i * data.length / numPts);
-      let sum = 0, count = 0;
-      for (let j = Math.max(0, start - binSize); j < Math.min(data.length, start + binSize); j++) { sum += data[j]; count++; }
-      raw.push(((sum / count) / 128) - 1);
+    const BUFFER_SIZE = 4096; // visible samples across the screen
+
+    // Init scrolling buffer on first call
+    if (!waveBufferRef.current || waveBufferRef.current.length !== BUFFER_SIZE) {
+      waveBufferRef.current = new Float32Array(BUFFER_SIZE);
+      waveWriteRef.current = 0;
     }
-    // Extra smoothing pass
-    const smoothed = raw.map((v, i) => {
-      const prev = i > 0 ? raw[i - 1] : v;
-      const next = i < raw.length - 1 ? raw[i + 1] : v;
-      return prev * 0.25 + v * 0.5 + next * 0.25;
-    });
-    const pts = smoothed.map((val, i) => {
-      const x = (i / (numPts - 1)) * w;
-      // Amplitude peaks in the center, tapers at edges
-      const centerBoost = Math.sin((i / (numPts - 1)) * Math.PI);
-      const amp = 0.2 + centerBoost * 0.5;
-      return { x, y: mid + val * mid * amp };
-    });
+    const buf = waveBufferRef.current;
+
+    // Push 1 sample every 4 frames for an ultra-slow scrolling oscilloscope
+    // At 60fps this takes ~4.5 minutes to fill the 4096-sample screen
+    if (!waveBufferRef._frameCount) waveBufferRef._frameCount = 0;
+    waveBufferRef._frameCount++;
+    if (waveBufferRef._frameCount % 4 === 0) {
+      const srcIdx = Math.floor(data.length / 2);
+      buf[waveWriteRef.current % BUFFER_SIZE] = (data[srcIdx] - 128) / 128;
+      waveWriteRef.current++;
+    }
+
+    // Read the buffer as a scrolling window
+    const writePos = waveWriteRef.current;
+    const numPts = Math.min(BUFFER_SIZE, writePos);
+    const pts = [];
+    for (let i = 0; i < numPts; i++) {
+      const bufIdx = ((writePos - numPts + i) % BUFFER_SIZE + BUFFER_SIZE) % BUFFER_SIZE;
+      const x = (i / (BUFFER_SIZE - 1)) * w;
+      const val = buf[bufIdx];
+      pts.push({ x, y: mid + val * mid * 0.7 });
+    }
+
+    if (pts.length < 2) return;
+
     // Draw smooth curve
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
@@ -373,7 +404,7 @@ function VisualizerTab({ songs, onFullscreen }) {
       const cpy = (pts[i].y + pts[i + 1].y) / 2;
       ctx.quadraticCurveTo(pts[i].x, pts[i].y, cpx, cpy);
     }
-    if (pts.length > 1) ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+    ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
 
     const grad = ctx.createLinearGradient(0, 0, w, 0);
     grad.addColorStop(0, '#22c55e');
@@ -754,13 +785,14 @@ function VisualizerTab({ songs, onFullscreen }) {
     let sum = 0;
     for (let i = 0; i < freqData.length; i++) sum += freqData[i];
     const volume = sum / freqData.length / 255;
-    const amp = Math.pow(volume, 0.5); // boosted amplitude response
+    const rawAmp = Math.pow(volume, 0.5);
+    const amp = Math.min(Math.max(rawAmp, 0.35), 0.85); // floor 0.35, cap 0.85
 
     // Lissajous X-Y mode: sample[i] → X, sample[i + offset] → Y
     // The offset creates the phase difference that produces circles/figures
     const len = timeData.length;
     const offset = Math.floor(len * 0.25); // 90° phase offset → circles
-    const radius = Math.min(w, h) * 0.55 * amp;
+    const radius = Math.max(Math.min(w, h) * 0.45 * amp, 50);
 
     // Slow rotation of the whole figure
     const rot = now * 0.3;
@@ -866,7 +898,7 @@ function VisualizerTab({ songs, onFullscreen }) {
 
     // Composite trail canvas onto main canvas
     ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0); // reset to pixel coords for drawImage
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(lc, 0, 0);
     ctx.restore();
   };
