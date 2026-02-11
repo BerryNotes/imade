@@ -395,40 +395,31 @@ function VisualizerTab({ songs, onFullscreen }) {
     const endIdx = Math.floor(progress * BUFFER_SIZE);
     if (endIdx < 2) return;
 
-    // Downsample to ~300 points with neighbor averaging for smoothness
-    const MAX_PTS = 300;
+    const MAX_PTS = 800;
     const step = Math.max(1, Math.floor(endIdx / MAX_PTS));
     const drawW = (endIdx / BUFFER_SIZE) * w;
 
-    // Build smoothed points — average a window around each sample
-    const pts = [];
-    const halfWin = Math.max(1, Math.floor(step / 2));
+    // Build smoothed points — average neighbors to remove jaggedness
+    const halfWin = Math.max(2, step);
+    ctx.beginPath();
+    let firstY = 0, lastX = 0;
+    let started = false;
     for (let i = 0; i < endIdx; i += step) {
       let sum = 0, count = 0;
-      for (let j = Math.max(0, i - halfWin); j < Math.min(endIdx, i + halfWin + 1); j++) {
-        sum += buf[j]; count++;
-      }
-      const val = sum / count;
-      pts.push({ x: (i / BUFFER_SIZE) * w, y: mid + val * mid * 0.7 });
+      const lo = Math.max(0, i - halfWin);
+      const hi = Math.min(endIdx, i + halfWin + 1);
+      for (let j = lo; j < hi; j++) { sum += buf[j]; count++; }
+      const x = (i / BUFFER_SIZE) * w;
+      const y = mid + (sum / count) * mid * 0.7;
+      if (!started) { ctx.moveTo(x, y); firstY = y; started = true; }
+      else { ctx.lineTo(x, y); }
+      lastX = x;
     }
-    // Ensure we hit the end
-    if (pts.length > 0) {
-      const lastIdx = endIdx - 1;
-      pts.push({ x: (lastIdx / BUFFER_SIZE) * w, y: mid + buf[lastIdx] * mid * 0.7 });
-    }
-    if (pts.length < 2) return;
-
-    // Draw smooth bezier curve through points
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length - 1; i++) {
-      const cpx = (pts[i].x + pts[i + 1].x) / 2;
-      const cpy = (pts[i].y + pts[i + 1].y) / 2;
-      ctx.quadraticCurveTo(pts[i].x, pts[i].y, cpx, cpy);
-    }
-    const last = pts[pts.length - 1];
-    ctx.lineTo(last.x, last.y);
-    let lastX = last.x;
+    // Hit exact end
+    const ex = ((endIdx - 1) / BUFFER_SIZE) * w;
+    ctx.lineTo(ex, mid + buf[endIdx - 1] * mid * 0.7);
+    lastX = ex;
+    if (!started) return;
 
     const grad = ctx.createLinearGradient(0, 0, drawW, 0);
     grad.addColorStop(0, '#22c55e');
