@@ -383,50 +383,70 @@ function VisualizerTab({ songs, onFullscreen }) {
 
   const drawWaveform = (ctx, w, h, data) => {
     const mid = h / 2;
-    const dur = durationRef.current;
-    const time = currentTimeRef.current;
-    const progress = dur > 0 ? Math.min(time / dur, 1) : 0;
+    const BUFFER_SIZE = 4096; // visible samples across the screen
 
-    // Read from global waveform buffer (recorded in AudioProvider)
-    const wfData = getWaveformBuffer();
-    if (!wfData) return;
-    const buf = wfData.buffer;
-    const BUFFER_SIZE = buf.length;
-    const endIdx = Math.floor(progress * BUFFER_SIZE);
-    if (endIdx < 2) return;
+    // Init scrolling buffer on first call
+    if (!waveBufferRef.current || waveBufferRef.current.length !== BUFFER_SIZE) {
+      waveBufferRef.current = new Float32Array(BUFFER_SIZE);
+      waveWriteRef.current = 0;
+    }
+    const buf = waveBufferRef.current;
 
-    // Map buffer directly to pixel columns — one lineTo per pixel column drawn
-    const endX = (endIdx / BUFFER_SIZE) * w;
-    const pxCount = Math.ceil(endX);
-    if (pxCount < 2) return;
-
-    ctx.beginPath();
-    for (let px = 0; px <= pxCount; px++) {
-      const bufI = Math.floor((px / w) * BUFFER_SIZE);
-      const clamped = Math.min(bufI, endIdx - 1);
-      const y = mid + buf[clamped] * mid * 0.7;
-      if (px === 0) ctx.moveTo(px, y);
-      else ctx.lineTo(px, y);
+    // Push 1 sample every 4 frames for an ultra-slow scrolling oscilloscope
+    // At 60fps this takes ~4.5 minutes to fill the 4096-sample screen
+    if (!waveBufferRef._frameCount) waveBufferRef._frameCount = 0;
+    waveBufferRef._frameCount++;
+    if (waveBufferRef._frameCount % 4 === 0) {
+      const srcIdx = Math.floor(data.length / 2);
+      buf[waveWriteRef.current % BUFFER_SIZE] = (data[srcIdx] - 128) / 128;
+      waveWriteRef.current++;
     }
 
-    ctx.strokeStyle = '#818cf8';
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    // Read the buffer as a scrolling window
+    const writePos = waveWriteRef.current;
+    const numPts = Math.min(BUFFER_SIZE, writePos);
+    const pts = [];
+    for (let i = 0; i < numPts; i++) {
+      const bufIdx = ((writePos - numPts + i) % BUFFER_SIZE + BUFFER_SIZE) % BUFFER_SIZE;
+      const x = (i / (BUFFER_SIZE - 1)) * w;
+      const val = buf[bufIdx];
+      pts.push({ x, y: mid + val * mid * 0.7 });
+    }
 
-    // Fill under curve — reuse the existing path
-    ctx.lineTo(pxCount, mid);
+    if (pts.length < 2) return;
+
+    // Draw smooth curve
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const cpx = (pts[i].x + pts[i + 1].x) / 2;
+      const cpy = (pts[i].y + pts[i + 1].y) / 2;
+      ctx.quadraticCurveTo(pts[i].x, pts[i].y, cpx, cpy);
+    }
+    ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+
+    const grad = ctx.createLinearGradient(0, 0, w, 0);
+    grad.addColorStop(0, '#22c55e');
+    grad.addColorStop(0.5, '#818cf8');
+    grad.addColorStop(1, '#f59e0b');
+    ctx.shadowColor = 'rgba(129,140,248,0.3)';
+    ctx.shadowBlur = 12;
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 3;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Fill under curve
+    ctx.lineTo(w, mid);
     ctx.lineTo(0, mid);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(129,140,248,0.06)';
+    const fillGrad = ctx.createLinearGradient(0, 0, w, 0);
+    fillGrad.addColorStop(0, 'rgba(34,197,94,0.1)');
+    fillGrad.addColorStop(0.5, 'rgba(129,140,248,0.12)');
+    fillGrad.addColorStop(1, 'rgba(245,158,11,0.1)');
+    ctx.fillStyle = fillGrad;
     ctx.fill();
-
-    // Playhead line
-    ctx.beginPath();
-    ctx.moveTo(pxCount, 0);
-    ctx.lineTo(pxCount, h);
-    ctx.strokeStyle = 'rgba(129,140,248,0.3)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
   };
 
   // Fourier wave — frequency domain as a smooth curve (amplitude vs frequency)
