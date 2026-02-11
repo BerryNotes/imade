@@ -5,6 +5,7 @@ const MODES = [
   { id: 'bars', label: 'Bars' },
   { id: 'radial', label: 'Radial' },
   { id: 'wave', label: 'Wave' },
+  { id: 'eq', label: 'EQ' },
   { id: 'spectrograph', label: 'Spectrograph' },
   { id: 'particles', label: 'Particles' },
   { id: 'orbit', label: 'Orbit' },
@@ -271,7 +272,8 @@ function VisualizerTab({ songs, onFullscreen }) {
 
       if (mode === 'bars') drawBars(ctx, w, h, freqData);
       else if (mode === 'radial') drawRadial(ctx, w, h, freqData);
-      else if (mode === 'wave') drawWave(ctx, w, h, freqData);
+      else if (mode === 'wave') drawWaveSingle(ctx, w, h, timeData);
+      else if (mode === 'eq') drawEQ(ctx, w, h, freqData);
       else if (mode === 'spectrograph') drawSpectrograph(ctx, w, h, freqData, canvas);
       else if (mode === 'particles') drawParticles(ctx, w, h, freqData, vizTimeRef.current);
       else if (mode === 'orbit') drawOrbit(ctx, w, h, freqData, vizTimeRef.current, dt);
@@ -379,8 +381,40 @@ function VisualizerTab({ songs, onFullscreen }) {
     ctx.lineCap = 'butt';
   };
 
-  // Fourier wave — frequency domain as a smooth curve (amplitude vs frequency)
-  const drawWave = (ctx, w, h, freqData) => {
+  // Single wave — real-time time-domain oscilloscope
+  const drawWaveSingle = (ctx, w, h, timeData) => {
+    const mid = h / 2;
+    const len = timeData.length;
+
+    ctx.beginPath();
+    for (let i = 0; i < len; i++) {
+      const x = (i / (len - 1)) * w;
+      const val = (timeData[i] - 128) / 128;
+      const y = mid + val * mid * 0.8;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+
+    ctx.strokeStyle = '#818cf8';
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.shadowColor = 'rgba(129,140,248,0.4)';
+    ctx.shadowBlur = 10;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Subtle center line
+    ctx.beginPath();
+    ctx.moveTo(0, mid);
+    ctx.lineTo(w, mid);
+    ctx.strokeStyle = 'rgba(148,163,184,0.1)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  };
+
+  // EQ — frequency domain as a smooth curve (amplitude vs frequency)
+  const drawEQ = (ctx, w, h, freqData) => {
     const len = freqData.length;
     const mid = h / 2;
 
