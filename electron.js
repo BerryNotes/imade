@@ -10,6 +10,7 @@ app.whenReady().then(() => {
   // Store user data (songs, uploads, backups) in a writable location
   process.env.APP_DATA_PATH = app.getPath("userData");
   process.env.PORT = "3456";
+  process.env.IMADE_MODE = "electron";
 
   const { startServer } = require("./server");
 

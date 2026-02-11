@@ -2,104 +2,122 @@ const express = require("express");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const bcrypt = require("bcrypt");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const BASE_DIR = process.env.APP_DATA_PATH || __dirname;
-const DATA_DIR = path.join(BASE_DIR, "data");
 const UPLOADS_DIR = path.join(BASE_DIR, "uploads");
-const SONGS_FILE = path.join(DATA_DIR, "songs.json");
-const GENRES_FILE = path.join(DATA_DIR, "genres.json");
-const COMPARISONS_FILE = path.join(DATA_DIR, "comparisons.json");
-const PLAYLISTS_FILE = path.join(DATA_DIR, "playlists.json");
 const BACKUPS_DIR = path.join(BASE_DIR, "backups");
+const IMADE_MODE = process.env.IMADE_MODE || "web"; // "electron" or "web"
 
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
-if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR);
-if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR);
-if (!fs.existsSync(SONGS_FILE)) fs.writeFileSync(SONGS_FILE, "[]");
-if (!fs.existsSync(GENRES_FILE))
-  fs.writeFileSync(GENRES_FILE, JSON.stringify([
-    "Hip Hop","R&B","Pop","Rock","Electronic","Jazz","Lo-Fi",
-    "Soul","Funk","Indie","Ambient","Trap","Acoustic","Experimental","Other"
-  ]));
-if (!fs.existsSync(COMPARISONS_FILE)) fs.writeFileSync(COMPARISONS_FILE, "[]");
-if (!fs.existsSync(PLAYLISTS_FILE)) fs.writeFileSync(PLAYLISTS_FILE, "[]");
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
 
-const readJSON = (f) => {
-  try {
-    return JSON.parse(fs.readFileSync(f, "utf-8"));
-  } catch (e) {
-    const backup = f + ".bak";
-    if (fs.existsSync(backup)) {
-      console.error(`Warning: ${path.basename(f)} corrupted, restoring from backup`);
-      const data = JSON.parse(fs.readFileSync(backup, "utf-8"));
-      fs.writeFileSync(f, JSON.stringify(data, null, 2));
-      return data;
-    }
-    return [];
-  }
-};
+// Initialize database
+const db = require("./src/db");
+db.getDb(); // triggers schema creation
 
-const writeJSON = (f, d) => {
-  const json = JSON.stringify(d, null, 2);
-  const tmp = f + ".tmp";
-  fs.writeFileSync(tmp, json);
-  if (fs.existsSync(f)) {
-    try { fs.copyFileSync(f, f + ".bak"); } catch {}
-  }
-  fs.renameSync(tmp, f);
-};
-
-// In-memory cache — pre-warmed at startup, updated on writes
-const cache = {};
-[SONGS_FILE, GENRES_FILE, COMPARISONS_FILE, PLAYLISTS_FILE].forEach(f => { cache[f] = readJSON(f); });
-
-const readJSONAsync = async (f) => {
-  if (cache[f]) return cache[f];
-  try {
-    const raw = await fs.promises.readFile(f, "utf-8");
-    const data = JSON.parse(raw);
-    cache[f] = data;
-    return data;
-  } catch (e) {
-    const backup = f + ".bak";
-    try {
-      await fs.promises.access(backup);
-      console.error(`Warning: ${path.basename(f)} corrupted, restoring from backup`);
-      const raw = await fs.promises.readFile(backup, "utf-8");
-      const data = JSON.parse(raw);
-      await fs.promises.writeFile(f, JSON.stringify(data, null, 2));
-      cache[f] = data;
-      return data;
-    } catch {
-      return [];
-    }
-  }
-};
-
-const writeJSONAsync = async (f, d) => {
-  cache[f] = d;
-  const json = JSON.stringify(d, null, 2);
-  const tmp = f + ".tmp";
-  await fs.promises.writeFile(tmp, json);
-  try { await fs.promises.copyFile(f, f + ".bak"); } catch {}
-  await fs.promises.rename(tmp, f);
-};
-
-// Per-file lock to prevent concurrent read-modify-write races
-const fileLocks = new Map();
-const withLock = (f, fn) => {
-  const chain = (fileLocks.get(f) || Promise.resolve()).then(fn, fn);
-  fileLocks.set(f, chain.catch(() => {}));
-  return chain;
-};
+// Session middleware
+const { createSessionMiddleware, requireAuth, electronAutoLogin } = require("./src/middleware/auth");
 
 app.use(express.json());
-app.use("/uploads", express.static(UPLOADS_DIR));
+app.use(createSessionMiddleware());
+
+// Auth middleware — Electron auto-logs in, web requires login
+const auth = IMADE_MODE === "electron" ? electronAutoLogin : requireAuth;
+
+// ---- AUTH ROUTES (web mode only) ----
+
+app.post("/api/register", async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: "Username and password required" });
+  if (username.length < 2) return res.status(400).json({ error: "Username must be at least 2 characters" });
+  if (password.length < 4) return res.status(400).json({ error: "Password must be at least 4 characters" });
+
+  const existing = db.getUserByUsername(username.trim());
+  if (existing) return res.status(409).json({ error: "Username already taken" });
+
+  try {
+    const hash = await bcrypt.hash(password, 10);
+    db.createUser(username.trim(), hash);
+    const user = db.getUserByUsername(username.trim());
+
+    // Seed default genres for new user
+    const defaultGenres = ["Hip Hop", "R&B", "Pop", "Rock", "Electronic", "Jazz", "Lo-Fi", "Soul", "Funk", "Indie", "Ambient", "Trap", "Acoustic", "Experimental", "Other"];
+    for (const g of defaultGenres) db.addGenre(g, user.id);
+
+    // Create user uploads directory
+    const userUploads = path.join(UPLOADS_DIR, String(user.id));
+    if (!fs.existsSync(userUploads)) fs.mkdirSync(userUploads, { recursive: true });
+
+    req.session.userId = user.id;
+    res.json({ user: { id: user.id, username: user.username } });
+  } catch (e) {
+    console.error("Register error:", e);
+    res.status(500).json({ error: "Registration failed" });
+  }
+});
+
+app.post("/api/login", async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: "Username and password required" });
+
+  const user = db.getUserByUsername(username.trim());
+  if (!user) return res.status(401).json({ error: "Invalid credentials" });
+
+  try {
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) return res.status(401).json({ error: "Invalid credentials" });
+
+    req.session.userId = user.id;
+    res.json({ user: { id: user.id, username: user.username } });
+  } catch (e) {
+    console.error("Login error:", e);
+    res.status(500).json({ error: "Login failed" });
+  }
+});
+
+app.post("/api/logout", (req, res) => {
+  req.session.destroy(() => {
+    res.json({ success: true });
+  });
+});
+
+app.get("/api/me", (req, res) => {
+  if (!req.session || !req.session.userId) {
+    // In electron mode, auto-login creates the session
+    if (IMADE_MODE === "electron") {
+      let user = db.getUserByUsername("local");
+      if (!user) {
+        const hash = bcrypt.hashSync("local-electron-user", 10);
+        db.createUser("local", hash);
+        user = db.getUserByUsername("local");
+      }
+      req.session.userId = user.id;
+      return res.json({ user: { id: user.id, username: user.username } });
+    }
+    return res.status(401).json({ error: "Not authenticated" });
+  }
+  const user = db.getUserById(req.session.userId);
+  if (!user) return res.status(401).json({ error: "User not found" });
+  res.json({ user: { id: user.id, username: user.username } });
+});
+
+// ---- PER-USER FILE UPLOADS ----
+
+function getUserUploadsDir(userId) {
+  const dir = path.join(UPLOADS_DIR, String(userId));
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOADS_DIR),
+  destination: (req, file, cb) => {
+    const userId = req.session?.userId;
+    if (!userId) return cb(new Error("Not authenticated"));
+    cb(null, getUserUploadsDir(userId));
+  },
   filename: (req, file, cb) => {
     const unique = Date.now() + "-" + Math.round(Math.random() * 1e6);
     cb(null, unique + path.extname(file.originalname));
@@ -114,12 +132,23 @@ const upload = multer({
   },
 });
 
+// Serve uploads per-user: /uploads/filename → uploads/<userId>/filename
+app.get("/uploads/:filename", auth, (req, res) => {
+  const filename = path.basename(req.params.filename); // prevent path traversal
+  const userId = req.session.userId;
+  const filePath = path.join(UPLOADS_DIR, String(userId), filename);
+  if (!fs.existsSync(filePath)) return res.status(404).send("Not found");
+  res.sendFile(filePath);
+});
+
 // ---- SONGS ----
 
-app.get("/api/songs", async (req, res) => res.json(await readJSONAsync(SONGS_FILE)));
+app.get("/api/songs", auth, (req, res) => {
+  res.json(db.getSongs(req.session.userId));
+});
 
-app.post("/api/songs/bulk", upload.array("audio", 200), async (req, res) => {
-  const songs = await readJSONAsync(SONGS_FILE);
+app.post("/api/songs/bulk", auth, upload.array("audio", 200), (req, res) => {
+  const userId = req.session.userId;
   const newSongs = [];
   let dates = {};
   try { dates = JSON.parse(req.body.dates || "{}"); } catch (e) {}
@@ -132,21 +161,21 @@ app.post("/api/songs/bulk", upload.array("audio", 200), async (req, res) => {
       ? new Date(parseInt(clientDate, 10)).toISOString().split("T")[0]
       : new Date().toISOString().split("T")[0];
 
-    newSongs.push({
+    const song = {
       id: Date.now().toString() + "-" + Math.round(Math.random() * 1e9),
       title, date, genre: "",
       audioFile: "/uploads/" + file.filename,
       audioName: origName,
-    });
+    };
+    db.insertSong(song, userId);
+    newSongs.push(song);
   }
 
-  songs.unshift(...newSongs);
-  await writeJSONAsync(SONGS_FILE, songs);
   res.json(newSongs);
 });
 
-app.post("/api/songs", upload.single("audio"), async (req, res) => {
-  const songs = await readJSONAsync(SONGS_FILE);
+app.post("/api/songs", auth, upload.single("audio"), (req, res) => {
+  const userId = req.session.userId;
   const song = {
     id: Date.now().toString(),
     title: req.body.title, date: req.body.date,
@@ -154,132 +183,121 @@ app.post("/api/songs", upload.single("audio"), async (req, res) => {
     audioFile: req.file ? "/uploads/" + req.file.filename : null,
     audioName: req.file ? req.file.originalname : null,
   };
-  songs.unshift(song);
-  await writeJSONAsync(SONGS_FILE, songs);
+  db.insertSong(song, userId);
   res.json(song);
 });
 
-app.put("/api/songs/:id", upload.single("audio"), async (req, res) => {
-  const songs = await readJSONAsync(SONGS_FILE);
-  const idx = songs.findIndex((s) => s.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: "Not found" });
-  if (req.file && songs[idx].audioFile) {
-    const p = path.join(BASE_DIR, songs[idx].audioFile);
+app.put("/api/songs/:id", auth, upload.single("audio"), (req, res) => {
+  const userId = req.session.userId;
+  const existing = db.getSongById(req.params.id, userId);
+  if (!existing) return res.status(404).json({ error: "Not found" });
+
+  // Delete old audio file if replacing
+  if (req.file && existing.audioFile) {
+    const filename = path.basename(existing.audioFile);
+    const p = path.join(UPLOADS_DIR, String(userId), filename);
     if (fs.existsSync(p)) fs.unlinkSync(p);
   }
-  // Handle baseElo (manual Elo override) — only set when explicitly provided and non-zero
+
+  const fields = {};
+  if (req.body.title !== undefined) fields.title = req.body.title;
+  if (req.body.date !== undefined) fields.date = req.body.date;
+  if (req.body.genre !== undefined) fields.genre = req.body.genre;
+  if (req.file) {
+    fields.audioFile = "/uploads/" + req.file.filename;
+    fields.audioName = req.file.originalname;
+  }
+
+  // Handle baseElo — only set when explicitly provided and non-zero
   if (req.body.baseElo !== undefined) {
     const val = parseInt(req.body.baseElo, 10);
-    if (val > 0) songs[idx].baseElo = val;
-    else delete songs[idx].baseElo;
+    fields.baseElo = val > 0 ? val : 0;
   }
-  songs[idx] = {
-    ...songs[idx],
-    title: req.body.title ?? songs[idx].title,
-    date: req.body.date ?? songs[idx].date,
-    genre: req.body.genre ?? songs[idx].genre,
-    ...(req.file ? { audioFile: "/uploads/" + req.file.filename, audioName: req.file.originalname } : {}),
-  };
-  await writeJSONAsync(SONGS_FILE, songs);
-  res.json(songs[idx]);
+
+  db.updateSong(req.params.id, userId, fields);
+  res.json(db.getSongById(req.params.id, userId));
 });
 
 // Batch genre update
-app.patch("/api/songs/batch-genre", async (req, res) => {
+app.patch("/api/songs/batch-genre", auth, (req, res) => {
   const { ids, genre } = req.body;
   if (!ids || !Array.isArray(ids)) return res.status(400).json({ error: "ids array required" });
-  const songs = await readJSONAsync(SONGS_FILE);
-  const idSet = new Set(ids);
-  for (const s of songs) {
-    if (idSet.has(s.id)) s.genre = genre || "";
-  }
-  await writeJSONAsync(SONGS_FILE, songs);
+  db.batchUpdateGenre(ids, genre || "", req.session.userId);
   res.json({ updated: ids.length });
 });
 
-app.delete("/api/songs/:id", async (req, res) => {
-  let songs = await readJSONAsync(SONGS_FILE);
-  const song = songs.find((s) => s.id === req.params.id);
+app.delete("/api/songs/:id", auth, (req, res) => {
+  const userId = req.session.userId;
+  const song = db.getSongById(req.params.id, userId);
   if (song?.audioFile) {
-    const p = path.join(BASE_DIR, song.audioFile);
+    const filename = path.basename(song.audioFile);
+    const p = path.join(UPLOADS_DIR, String(userId), filename);
     if (fs.existsSync(p)) fs.unlinkSync(p);
   }
-  songs = songs.filter((s) => s.id !== req.params.id);
-  await writeJSONAsync(SONGS_FILE, songs);
-  let comps = await readJSONAsync(COMPARISONS_FILE);
-  comps = comps.filter((c) => c.songA !== req.params.id && c.songB !== req.params.id);
-  await writeJSONAsync(COMPARISONS_FILE, comps);
+  db.deleteSong(req.params.id, userId);
   res.json({ success: true });
 });
 
 // ---- GENRES ----
 
-app.get("/api/genres", async (req, res) => res.json(await readJSONAsync(GENRES_FILE)));
+app.get("/api/genres", auth, (req, res) => {
+  res.json(db.getGenres(req.session.userId));
+});
 
-app.post("/api/genres", async (req, res) => {
-  const genres = await readJSONAsync(GENRES_FILE);
+app.post("/api/genres", auth, (req, res) => {
   const name = (req.body.name || "").trim();
   if (!name) return res.status(400).json({ error: "Name required" });
-  if (!genres.includes(name)) { genres.push(name); await writeJSONAsync(GENRES_FILE, genres); }
-  res.json(genres);
+  db.addGenre(name, req.session.userId);
+  res.json(db.getGenres(req.session.userId));
 });
 
-app.delete("/api/genres/:name", async (req, res) => {
-  let genres = await readJSONAsync(GENRES_FILE);
-  genres = genres.filter((g) => g !== decodeURIComponent(req.params.name));
-  await writeJSONAsync(GENRES_FILE, genres);
-  res.json(genres);
+app.delete("/api/genres/:name", auth, (req, res) => {
+  db.deleteGenre(decodeURIComponent(req.params.name), req.session.userId);
+  res.json(db.getGenres(req.session.userId));
 });
 
-app.put("/api/genres/:name", async (req, res) => {
+app.put("/api/genres/:name", auth, (req, res) => {
+  const userId = req.session.userId;
   const oldName = decodeURIComponent(req.params.name);
   const newName = (req.body.name || "").trim();
   if (!newName) return res.status(400).json({ error: "Name required" });
-  let genres = await readJSONAsync(GENRES_FILE);
-  const idx = genres.indexOf(oldName);
-  if (idx !== -1) genres[idx] = newName;
-  else if (!genres.includes(newName)) genres.push(newName);
-  await writeJSONAsync(GENRES_FILE, genres);
+
+  db.renameGenre(oldName, newName, userId);
+
   // Update all songs with old genre name
-  const songs = await readJSONAsync(SONGS_FILE);
-  songs.forEach(s => { if (s.genre === oldName) s.genre = newName; });
-  await writeJSONAsync(SONGS_FILE, songs);
-  res.json(genres);
+  const songs = db.getSongs(userId).filter(s => s.genre === oldName);
+  if (songs.length > 0) {
+    db.batchUpdateGenre(songs.map(s => s.id), newName, userId);
+  }
+
+  res.json(db.getGenres(userId));
 });
 
 // ---- COMPARISONS ----
 
-app.get("/api/comparisons", async (req, res) => res.json(await readJSONAsync(COMPARISONS_FILE)));
+app.get("/api/comparisons", auth, (req, res) => {
+  res.json(db.getComparisons(req.session.userId));
+});
 
-app.post("/api/comparisons", async (req, res) => {
-  const comps = await readJSONAsync(COMPARISONS_FILE);
+app.post("/api/comparisons", auth, (req, res) => {
   const { songA, songB, winner, source } = req.body;
   if (!songA || !songB || !winner) return res.status(400).json({ error: "Missing fields" });
-  const filtered = comps.filter(
-    (c) => !((c.songA === songA && c.songB === songB) || (c.songA === songB && c.songB === songA))
-  );
-  const entry = { songA, songB, winner, timestamp: Date.now() };
-  if (source) entry.source = source;
-  filtered.push(entry);
-  await writeJSONAsync(COMPARISONS_FILE, filtered);
-  res.json(filtered);
+  db.insertComparison({ songA, songB, winner, source, timestamp: Date.now() }, req.session.userId);
+  res.json(db.getComparisons(req.session.userId));
 });
 
-app.delete("/api/comparisons/last", async (req, res) => {
-  const comps = await readJSONAsync(COMPARISONS_FILE);
-  if (comps.length > 0) comps.pop();
-  await writeJSONAsync(COMPARISONS_FILE, comps);
-  res.json(comps);
+app.delete("/api/comparisons/last", auth, (req, res) => {
+  db.deleteLastComparison(req.session.userId);
+  res.json(db.getComparisons(req.session.userId));
 });
 
-app.delete("/api/comparisons", async (req, res) => {
-  await writeJSONAsync(COMPARISONS_FILE, []);
+app.delete("/api/comparisons", auth, (req, res) => {
+  db.deleteAllComparisons(req.session.userId);
   res.json([]);
 });
 
 // ---- RANKINGS ----
 
-// Shared Elo computation — matches the frontend useRanking algorithm
 const SOURCE_K = { tier: 24, quick: 32, classic: 48, bracket: 56 };
 const computeElo = (songs, comps) => {
   const elo = {};
@@ -303,9 +321,10 @@ const computeElo = (songs, comps) => {
   return elo;
 };
 
-app.get("/api/rankings", async (req, res) => {
-  const songs = await readJSONAsync(SONGS_FILE);
-  const comps = await readJSONAsync(COMPARISONS_FILE);
+app.get("/api/rankings", auth, (req, res) => {
+  const userId = req.session.userId;
+  const songs = db.getSongs(userId);
+  const comps = db.getComparisons(userId);
   const elo = computeElo(songs, comps);
   const totalPairs = (songs.length * (songs.length - 1)) / 2;
   const ranked = songs
@@ -320,9 +339,10 @@ app.get("/api/rankings", async (req, res) => {
 
 // ---- EXPORT ----
 
-app.get("/api/export/m3u", async (req, res) => {
-  const songs = await readJSONAsync(SONGS_FILE);
-  const comps = await readJSONAsync(COMPARISONS_FILE);
+app.get("/api/export/m3u", auth, (req, res) => {
+  const userId = req.session.userId;
+  const songs = db.getSongs(userId);
+  const comps = db.getComparisons(userId);
   const genre = req.query.genre || "";
   const limit = parseInt(req.query.limit, 10) || 0;
 
@@ -334,7 +354,6 @@ app.get("/api/export/m3u", async (req, res) => {
   if (genre) ranked = ranked.filter(s => s.genre === genre);
   if (limit > 0) ranked = ranked.slice(0, limit);
 
-  // Build M3U
   let m3u = "#EXTM3U\n";
   for (const s of ranked) {
     if (s.audioFile) {
@@ -350,10 +369,11 @@ app.get("/api/export/m3u", async (req, res) => {
 
 // ---- PLAYLISTS ----
 
-app.get("/api/playlists", async (req, res) => res.json(await readJSONAsync(PLAYLISTS_FILE)));
+app.get("/api/playlists", auth, (req, res) => {
+  res.json(db.getPlaylists(req.session.userId));
+});
 
-app.post("/api/playlists", async (req, res) => {
-  const playlists = await readJSONAsync(PLAYLISTS_FILE);
+app.post("/api/playlists", auth, (req, res) => {
   const pl = {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     name: req.body.name || "Untitled",
@@ -361,68 +381,95 @@ app.post("/api/playlists", async (req, res) => {
     createdAt: new Date().toISOString(),
   };
   if (req.body.smart) pl.smart = req.body.smart;
-  playlists.push(pl);
-  await writeJSONAsync(PLAYLISTS_FILE, playlists);
+  db.insertPlaylist(pl, req.session.userId);
   res.json(pl);
 });
 
-app.put("/api/playlists/:id", async (req, res) => {
-  const playlists = await readJSONAsync(PLAYLISTS_FILE);
-  const idx = playlists.findIndex(p => p.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: "Not found" });
-  if (req.body.name !== undefined) playlists[idx].name = req.body.name;
-  if (req.body.songIds !== undefined) playlists[idx].songIds = req.body.songIds;
-  await writeJSONAsync(PLAYLISTS_FILE, playlists);
-  res.json(playlists[idx]);
+app.put("/api/playlists/:id", auth, (req, res) => {
+  const userId = req.session.userId;
+  const fields = {};
+  if (req.body.name !== undefined) fields.name = req.body.name;
+  if (req.body.songIds !== undefined) fields.songIds = req.body.songIds;
+  db.updatePlaylist(req.params.id, userId, fields);
+  const playlists = db.getPlaylists(userId);
+  const updated = playlists.find(p => p.id === req.params.id);
+  if (!updated) return res.status(404).json({ error: "Not found" });
+  res.json(updated);
 });
 
-app.delete("/api/playlists/:id", async (req, res) => {
-  let playlists = await readJSONAsync(PLAYLISTS_FILE);
-  playlists = playlists.filter(p => p.id !== req.params.id);
-  await writeJSONAsync(PLAYLISTS_FILE, playlists);
-  res.json(playlists);
+app.delete("/api/playlists/:id", auth, (req, res) => {
+  db.deletePlaylist(req.params.id, req.session.userId);
+  res.json(db.getPlaylists(req.session.userId));
 });
 
 // ---- BACKUPS ----
 
-app.post("/api/backup", (req, res) => {
+app.post("/api/backup", auth, (req, res) => {
+  const userId = req.session.userId;
+  const data = {
+    songs: db.getSongs(userId),
+    comparisons: db.getComparisons(userId),
+    genres: db.getGenres(userId),
+    playlists: db.getPlaylists(userId),
+    exportedAt: new Date().toISOString(),
+  };
   const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const backupDir = path.join(BACKUPS_DIR, ts);
+  const userBackupDir = path.join(BACKUPS_DIR, String(userId));
+  if (!fs.existsSync(userBackupDir)) fs.mkdirSync(userBackupDir, { recursive: true });
+  const backupDir = path.join(userBackupDir, ts);
   fs.mkdirSync(backupDir, { recursive: true });
-  for (const f of [SONGS_FILE, COMPARISONS_FILE, GENRES_FILE, PLAYLISTS_FILE]) {
-    if (fs.existsSync(f)) fs.copyFileSync(f, path.join(backupDir, path.basename(f)));
-  }
+  fs.writeFileSync(path.join(backupDir, "backup.json"), JSON.stringify(data, null, 2));
   res.json({ name: ts, path: backupDir });
 });
 
-app.get("/api/backups", (req, res) => {
-  if (!fs.existsSync(BACKUPS_DIR)) return res.json([]);
-  const dirs = fs.readdirSync(BACKUPS_DIR).filter(d => fs.statSync(path.join(BACKUPS_DIR, d)).isDirectory()).sort().reverse();
+app.get("/api/backups", auth, (req, res) => {
+  const userBackupDir = path.join(BACKUPS_DIR, String(req.session.userId));
+  if (!fs.existsSync(userBackupDir)) return res.json([]);
+  const dirs = fs.readdirSync(userBackupDir).filter(d => fs.statSync(path.join(userBackupDir, d)).isDirectory()).sort().reverse();
   res.json(dirs);
 });
 
-app.post("/api/backup/restore/:name", async (req, res) => {
-  const backupDir = path.join(BACKUPS_DIR, req.params.name);
+app.post("/api/backup/restore/:name", auth, (req, res) => {
+  const userId = req.session.userId;
+  const userBackupDir = path.join(BACKUPS_DIR, String(userId));
+  const backupDir = path.join(userBackupDir, req.params.name);
   if (!fs.existsSync(backupDir)) return res.status(404).json({ error: "Backup not found" });
-  for (const f of ["songs.json", "comparisons.json", "genres.json", "playlists.json"]) {
-    const src = path.join(backupDir, f);
-    const dest = path.join(DATA_DIR, f);
-    if (fs.existsSync(src)) fs.copyFileSync(src, dest);
+
+  const backupFile = path.join(backupDir, "backup.json");
+  if (!fs.existsSync(backupFile)) return res.status(404).json({ error: "Backup data not found" });
+
+  try {
+    const data = JSON.parse(fs.readFileSync(backupFile, "utf-8"));
+    db.bulkReplace(userId, data);
+    res.json({ restored: req.params.name });
+  } catch (e) {
+    console.error("Restore error:", e);
+    res.status(500).json({ error: "Restore failed" });
   }
-  // Invalidate cache after restore
-  [SONGS_FILE, GENRES_FILE, COMPARISONS_FILE, PLAYLISTS_FILE].forEach(f => { cache[f] = readJSON(f); });
-  res.json({ restored: req.params.name });
 });
 
 // ---- COMPARISONS SWAP (for testing) ----
 
-app.get("/api/comparisons/export", (req, res) => {
-  res.download(COMPARISONS_FILE, "comparisons.json");
+app.get("/api/comparisons/export", auth, (req, res) => {
+  const comps = db.getComparisons(req.session.userId);
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Content-Disposition", 'attachment; filename="comparisons.json"');
+  res.json(comps);
 });
 
-app.post("/api/comparisons/import", express.json({ limit: "50mb" }), async (req, res) => {
+app.post("/api/comparisons/import", auth, express.json({ limit: "50mb" }), (req, res) => {
   if (!Array.isArray(req.body)) return res.status(400).json({ error: "Expected array" });
-  await writeJSONAsync(COMPARISONS_FILE, req.body);
+  const userId = req.session.userId;
+  db.deleteAllComparisons(userId);
+  const stmt = db.getDb().prepare(
+    "INSERT INTO comparisons (user_id, song_a, song_b, winner, source, timestamp) VALUES (?, ?, ?, ?, ?, ?)"
+  );
+  const tx = db.getDb().transaction(() => {
+    for (const c of req.body) {
+      stmt.run(userId, c.songA, c.songB, c.winner, c.source || "classic", c.timestamp);
+    }
+  });
+  tx();
   res.json({ imported: req.body.length });
 });
 
@@ -461,12 +508,17 @@ app.get("/api/update-check", async (req, res) => {
 // ---- FRONTEND ----
 
 app.use(express.static(path.join(__dirname, "dist-client")));
-app.get("/", (req, res) => res.sendFile(path.join(__dirname, "dist-client", "index.html")));
+app.get("*", (req, res) => {
+  // Don't catch API routes
+  if (req.path.startsWith("/api/")) return res.status(404).json({ error: "Not found" });
+  res.sendFile(path.join(__dirname, "dist-client", "index.html"));
+});
 
 function startServer(callback) {
   const server = app.listen(PORT, "127.0.0.1", () => {
     const port = server.address().port;
-    console.log("\n  ♪  iMade is running on http://localhost:" + port + "\n");
+    console.log("\n  ♪  iMade is running on http://localhost:" + port);
+    console.log("    Mode: " + IMADE_MODE + "\n");
     if (callback) callback(port);
   });
   return server;

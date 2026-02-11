@@ -12,10 +12,15 @@
     "build": "vite build && electron-builder --win",
     "build:mac": "vite build && electron-builder --mac",
     "build:linux": "vite build && electron-builder --linux",
+    "migrate": "node src/migrate.js",
     "build:all": "vite build && electron-builder -mwl"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
+    "better-sqlite3": "^12.6.2",
+    "classic-level": "^3.0.0",
     "express": "^4.18.2",
+    "express-session": "^1.19.0",
     "multer": "^1.4.5-lts.1"
   },
   "devDependencies": {
@@ -30,6 +35,10 @@
     "appId": "com.berrynotes.imade",
     "productName": "iMade",
     "asar": true,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**",
+      "node_modules/bcrypt/**"
+    ],
     "win": {
       "target": "zip",
       "artifactName": "iMade-win.${ext}"
@@ -40,7 +49,10 @@
       "artifactName": "iMade-mac.${ext}"
     },
     "linux": {
-      "target": ["AppImage", "zip"],
+      "target": [
+        "AppImage",
+        "zip"
+      ],
       "category": "Audio",
       "artifactName": "iMade-linux.${ext}"
     },
@@ -48,6 +60,8 @@
       "electron.js",
       "preload.js",
       "server.js",
+      "src/db.js",
+      "src/middleware/**/*",
       "dist-client/**/*",
       "build/icon.png",
       "package.json",

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useGlobalAudio } from './components/AudioProvider';
 import BattleTab from './tabs/BattleTab';
+import AuthScreen from './components/AuthScreen';
 import api from './api';
 
 const LibraryTab = React.lazy(() => import('./tabs/LibraryTab'));
@@ -13,8 +14,11 @@ const PlaylistsTab = React.lazy(() => import('./tabs/PlaylistsTab'));
 const VisualizerTab = React.lazy(() => import('./tabs/VisualizerTab'));
 
 const BATCH_SIZE = 5;
+const isElectron = !!window.electronAPI;
 
 function App() {
+  const [user, setUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [tab, setTab] = useState("library");
   const [songs, setSongs] = useState([]);
   const [genres, setGenres] = useState([]);
@@ -44,6 +48,32 @@ function App() {
   const [showWinLoss, setShowWinLoss] = useState(() => localStorage.getItem("imade_showWinLoss") !== "0");
   const [rowDensity, setRowDensity] = useState(() => localStorage.getItem("imade_rowDensity") || "comfortable");
 
+  // Auth check on mount
+  useEffect(() => {
+    api.getMe().then(data => {
+      setUser(data.user);
+      setAuthChecked(true);
+    }).catch(() => {
+      setAuthChecked(true);
+    });
+    // Redirect to login on 401
+    api.setOnUnauthorized(() => { setUser(null); });
+  }, []);
+
+  const handleAuth = useCallback((userData) => {
+    setUser(userData);
+    // Reset app state for new session
+    setSongs([]); setGenres([]); setComparisons([]); setPlaylists([]);
+    setLoaded(false);
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    await api.logout().catch(() => {});
+    setUser(null);
+    setSongs([]); setGenres([]); setComparisons([]); setPlaylists([]);
+    setLoaded(false);
+  }, []);
+
   const persistSetting = useCallback((key, val, setter) => { setter(val); localStorage.setItem("imade_" + key, String(val)); }, []);
 
   const persistIntro = useCallback((v) => { setHasSeenIntro(v); if (v) localStorage.setItem("imade_seenIntro", "1"); }, []);
@@ -68,6 +98,26 @@ function App() {
   });
   const listenTimesRef = useRef(listenTimes);
   const lastTimeUpdateRef = useRef({ src: null, time: 0 });
+
+  // One-time seed: import listen times from Electron migration if localStorage is empty
+  useEffect(() => {
+    if (localStorage.getItem("imade_listenTimes_seeded")) return;
+    if (Object.keys(listenTimesRef.current).length > 0) {
+      localStorage.setItem("imade_listenTimes_seeded", "1");
+      return;
+    }
+    fetch("/listenTimes.json").then(r => {
+      if (!r.ok) return;
+      return r.json();
+    }).then(data => {
+      if (data && Object.keys(data).length > 0) {
+        listenTimesRef.current = data;
+        setListenTimes(data);
+        localStorage.setItem("imade_listenTimes", JSON.stringify(data));
+      }
+      localStorage.setItem("imade_listenTimes_seeded", "1");
+    }).catch(() => {});
+  }, []);
 
   const [updateInfo, setUpdateInfo] = useState(null);
 
@@ -102,7 +152,7 @@ function App() {
     }
   }, [showToast]);
 
-  useEffect(() => { refresh().then(()=>setLoaded(true)); }, []);
+  useEffect(() => { if (user) refresh().then(()=>setLoaded(true)); }, [user]);
 
   // Auto-dismiss intro for returning users who already have songs
   useEffect(() => {
@@ -287,6 +337,9 @@ function App() {
 
   const cancelUpload = useCallback(() => { uploadAbortRef.current = true; }, []);
 
+  // Auth gate
+  if (!authChecked) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",color:"#6b7280"}}>Loading...</div>;
+  if (!user) return <AuthScreen onAuth={handleAuth} />;
   if (!loaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",color:"#6b7280"}}>Loading...</div>;
 
   const tabs = [
@@ -305,7 +358,8 @@ function App() {
 
   return (
     <div style={{minHeight:"100vh"}}>
-      {/* Custom title bar */}
+      {/* Custom title bar — Electron only */}
+      {isElectron && (
       <div style={{
         display:"flex", alignItems:"center", justifyContent:"space-between",
         height:32, background:"#0c0a1a", borderBottom:"1px solid #1a1a2e",
@@ -334,6 +388,7 @@ function App() {
           </button>
         </div>
       </div>
+      )}
 
       {/* Global upload progress bar - visible from any tab */}
       {uploading && (
@@ -351,7 +406,7 @@ function App() {
       )}
 
       {/* Header */}
-      <div ref={headerRef} style={{position:"sticky",top:32,zIndex:20,background:"#13102a"}}>
+      <div ref={headerRef} style={{position:"sticky",top:isElectron?32:0,zIndex:20,background:"#13102a"}}>
       <div style={{padding: uploading ? "80px 24px 0" : "32px 24px 0",maxWidth:1200,margin:"0 auto",transition:"padding 0.3s"}}>
         <div style={{display:"flex",alignItems:"baseline",gap:12,marginBottom:0}}>
           <h1 style={{margin:0,fontSize:"clamp(28px,6vw,40px)",fontWeight:700,background:"linear-gradient(135deg,#e2e8f0,#818cf8)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",letterSpacing:"-0.02em",lineHeight:1.1}}>IMAde</h1>
@@ -483,6 +538,7 @@ function App() {
               showWinLoss={showWinLoss} setShowWinLoss={(v) => { setShowWinLoss(v); localStorage.setItem("imade_showWinLoss", v ? "1" : "0"); }}
               rowDensity={rowDensity} setRowDensity={(v) => persistSetting("rowDensity", v, setRowDensity)}
               listenTimes={listenTimes} setListenTimes={setListenTimes} listenTimesRef={listenTimesRef}
+              user={user} onLogout={handleLogout}
               />}
           </div>
           </React.Suspense>

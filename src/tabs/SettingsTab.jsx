@@ -4,7 +4,7 @@ import api from '../api';
 
 function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToast, showVariance, setShowVariance,
   sessionLength, setSessionLength, bracketSize, setBracketSize, showWinLoss, setShowWinLoss,
-  rowDensity, setRowDensity, listenTimes, setListenTimes, listenTimesRef }) {
+  rowDensity, setRowDensity, listenTimes, setListenTimes, listenTimesRef, user, onLogout }) {
   const [newGenre, setNewGenre] = useState("");
   const [editingGenre, setEditingGenre] = useState(null);
   const [editName, setEditName] = useState("");
@@ -137,6 +137,7 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
     { id: "general", label: "General", icon: "⚙️" },
     { id: "genres", label: "Genres", icon: "🏷️" },
     { id: "data", label: "Data", icon: "💾" },
+    { id: "account", label: "Account", icon: "👤" },
   ];
 
   return (
@@ -238,6 +239,36 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
               </div>
             ))}
             {genres.length === 0 && <span style={{color:"#6b6b80",fontSize:13}}>No genres yet</span>}
+          </div>
+        </div>
+      )}
+
+      {/* ===== ACCOUNT TAB ===== */}
+      {settingsTab === "account" && (
+        <div>
+          <div style={sec}>
+            <div style={secT}>👤 Account</div>
+            {user && (
+              <div style={{marginBottom:16}}>
+                <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0"}}>
+                  <div style={{width:40,height:40,borderRadius:10,background:"linear-gradient(135deg,#4338ca,#6366f1)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:16,fontWeight:700}}>
+                    {user.username.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <div style={{color:"#e2e8f0",fontSize:14,fontWeight:600}}>{user.username}</div>
+                    <div style={{color:"#6b6b80",fontSize:12}}>Logged in</div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {onLogout && (
+              <button onClick={onLogout}
+                style={{background:"none",border:"1px solid #2a2a45",borderRadius:10,padding:"10px 18px",color:"#8a8aa0",fontSize:13,cursor:"pointer"}}
+                onMouseEnter={e=>{e.target.style.color="#ef4444";e.target.style.borderColor="#5a2a2a"}}
+                onMouseLeave={e=>{e.target.style.color="#8a8aa0";e.target.style.borderColor="#2a2a45"}}>
+                Sign out
+              </button>
+            )}
           </div>
         </div>
       )}
