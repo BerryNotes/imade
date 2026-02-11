@@ -4,7 +4,6 @@ import { useGlobalAudio } from '../components/AudioProvider';
 const MODES = [
   { id: 'bars', label: 'Bars' },
   { id: 'radial', label: 'Radial' },
-  { id: 'waveform', label: 'Waveform' },
   { id: 'wave', label: 'Wave' },
   { id: 'spectrograph', label: 'Spectrograph' },
   { id: 'particles', label: 'Particles' },
@@ -272,7 +271,6 @@ function VisualizerTab({ songs, onFullscreen }) {
 
       if (mode === 'bars') drawBars(ctx, w, h, freqData);
       else if (mode === 'radial') drawRadial(ctx, w, h, freqData);
-      else if (mode === 'waveform') drawWaveform(ctx, w, h, timeData);
       else if (mode === 'wave') drawWave(ctx, w, h, freqData);
       else if (mode === 'spectrograph') drawSpectrograph(ctx, w, h, freqData, canvas);
       else if (mode === 'particles') drawParticles(ctx, w, h, freqData, vizTimeRef.current);
@@ -379,77 +377,6 @@ function VisualizerTab({ songs, onFullscreen }) {
     }
     ctx.shadowBlur = 0;
     ctx.lineCap = 'butt';
-  };
-
-  const drawWaveform = (ctx, w, h, data) => {
-    const mid = h / 2;
-    const BUFFER_SIZE = 4096; // visible samples across the screen
-
-    // Init scrolling buffer on first call
-    if (!waveBufferRef.current || waveBufferRef.current.length !== BUFFER_SIZE) {
-      waveBufferRef.current = new Float32Array(BUFFER_SIZE);
-      waveWriteRef.current = 0;
-    }
-    const buf = waveBufferRef.current;
-
-    // Write rate synced to song duration — fills the screen by end of song
-    const dur = durationRef.current;
-    const time = currentTimeRef.current;
-    const progress = dur > 0 ? Math.min(time / dur, 1) : 0;
-    const targetWrite = Math.floor(progress * BUFFER_SIZE);
-    const srcIdx = Math.floor(data.length / 2);
-    const sample = (data[srcIdx] - 128) / 128;
-    // Fill from current position to target (usually 0-2 samples per frame)
-    while (waveWriteRef.current < targetWrite && waveWriteRef.current < BUFFER_SIZE) {
-      buf[waveWriteRef.current] = sample;
-      waveWriteRef.current++;
-    }
-
-    // Read the buffer as a scrolling window
-    const writePos = waveWriteRef.current;
-    const numPts = Math.min(BUFFER_SIZE, writePos);
-    const pts = [];
-    for (let i = 0; i < numPts; i++) {
-      const bufIdx = ((writePos - numPts + i) % BUFFER_SIZE + BUFFER_SIZE) % BUFFER_SIZE;
-      const x = (i / (BUFFER_SIZE - 1)) * w;
-      const val = buf[bufIdx];
-      pts.push({ x, y: mid + val * mid * 0.7 });
-    }
-
-    if (pts.length < 2) return;
-
-    // Draw smooth curve
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length - 1; i++) {
-      const cpx = (pts[i].x + pts[i + 1].x) / 2;
-      const cpy = (pts[i].y + pts[i + 1].y) / 2;
-      ctx.quadraticCurveTo(pts[i].x, pts[i].y, cpx, cpy);
-    }
-    ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
-
-    const grad = ctx.createLinearGradient(0, 0, w, 0);
-    grad.addColorStop(0, '#22c55e');
-    grad.addColorStop(0.5, '#818cf8');
-    grad.addColorStop(1, '#f59e0b');
-    ctx.shadowColor = 'rgba(129,140,248,0.3)';
-    ctx.shadowBlur = 12;
-    ctx.strokeStyle = grad;
-    ctx.lineWidth = 3;
-    ctx.lineJoin = 'round';
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    // Fill under curve
-    ctx.lineTo(w, mid);
-    ctx.lineTo(0, mid);
-    ctx.closePath();
-    const fillGrad = ctx.createLinearGradient(0, 0, w, 0);
-    fillGrad.addColorStop(0, 'rgba(34,197,94,0.1)');
-    fillGrad.addColorStop(0.5, 'rgba(129,140,248,0.12)');
-    fillGrad.addColorStop(1, 'rgba(245,158,11,0.1)');
-    ctx.fillStyle = fillGrad;
-    ctx.fill();
   };
 
   // Fourier wave — frequency domain as a smooth curve (amplitude vs frequency)
