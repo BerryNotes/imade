@@ -418,13 +418,16 @@ function VisualizerTab({ songs, onFullscreen }) {
 
   // EQ — frequency domain as a smooth curve (amplitude vs frequency)
   const drawEQ = (ctx, w, h, freqData) => {
-    const len = freqData.length;
     const mid = h / 2;
+    // Cap at 13kHz — bins above this are mostly empty noise
+    const sampleRate = 44100;
+    const binHz = sampleRate / 512; // ~86Hz per bin
+    const maxBin = Math.min(Math.floor(13000 / binHz), freqData.length);
 
     // Build points from frequency data
     const pts = [];
-    for (let i = 0; i < len; i++) {
-      const x = (i / (len - 1)) * w;
+    for (let i = 0; i < maxBin; i++) {
+      const x = (i / (maxBin - 1)) * w;
       const val = freqData[i] / 255;
       pts.push({ x, y: mid - val * mid * 0.85 });
     }
@@ -519,9 +522,11 @@ function VisualizerTab({ songs, onFullscreen }) {
     }
     const sctx = sc.getContext('2d');
 
-    // Write one column of frequency data
+    // Write one column of frequency data — cap at 13kHz
     const col = spectroWriteRef.current % Math.round(w);
-    const binCount = freqData.length;
+    const sampleRate = 44100;
+    const binHz = sampleRate / 512;
+    const binCount = Math.min(Math.floor(13000 / binHz), freqData.length);
 
     for (let i = 0; i < binCount; i++) {
       const val = freqData[i] / 255;
@@ -568,11 +573,11 @@ function VisualizerTab({ songs, onFullscreen }) {
     ctx.fillStyle = 'rgba(148,163,184,0.5)';
     ctx.font = '11px monospace';
     ctx.textAlign = 'left';
-    const sampleRate = 44100;
-    const labels = [100, 500, 1000, 2000, 5000, 10000, 20000];
+    const maxFreq = 13000;
+    const labels = [100, 500, 1000, 2000, 5000, 10000];
     for (const freq of labels) {
-      if (freq > sampleRate / 2) continue;
-      const bin = Math.round(freq / (sampleRate / 2) * binCount);
+      if (freq > maxFreq) continue;
+      const bin = Math.round(freq / maxFreq * binCount);
       const y = (1 - bin / binCount) * h;
       if (y < 15 || y > h - 5) continue;
       ctx.fillText(freq >= 1000 ? `${freq / 1000}k` : `${freq}`, 6, y + 4);
