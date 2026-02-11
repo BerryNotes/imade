@@ -392,13 +392,16 @@ function VisualizerTab({ songs, onFullscreen }) {
     }
     const buf = waveBufferRef.current;
 
-    // Push 1 sample every 4 frames for an ultra-slow scrolling oscilloscope
-    // At 60fps this takes ~4.5 minutes to fill the 4096-sample screen
-    if (!waveBufferRef._frameCount) waveBufferRef._frameCount = 0;
-    waveBufferRef._frameCount++;
-    if (waveBufferRef._frameCount % 4 === 0) {
-      const srcIdx = Math.floor(data.length / 2);
-      buf[waveWriteRef.current % BUFFER_SIZE] = (data[srcIdx] - 128) / 128;
+    // Write rate synced to song duration — fills the screen by end of song
+    const dur = durationRef.current;
+    const time = currentTimeRef.current;
+    const progress = dur > 0 ? Math.min(time / dur, 1) : 0;
+    const targetWrite = Math.floor(progress * BUFFER_SIZE);
+    const srcIdx = Math.floor(data.length / 2);
+    const sample = (data[srcIdx] - 128) / 128;
+    // Fill from current position to target (usually 0-2 samples per frame)
+    while (waveWriteRef.current < targetWrite && waveWriteRef.current < BUFFER_SIZE) {
+      buf[waveWriteRef.current] = sample;
       waveWriteRef.current++;
     }
 
