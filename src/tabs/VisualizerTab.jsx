@@ -245,6 +245,11 @@ function VisualizerTab({ songs, onFullscreen }) {
         ctx.fillRect(0, 0, w, h);
       }
 
+      // Ensure analyser is connected — may not exist yet if tab opened mid-song
+      if (!analyserRef.current) {
+        resumeAudioContext();
+        ensureAnalyser();
+      }
       const analyser = analyserRef.current;
       if (!analyser) {
         rafRef.current = requestAnimationFrame(draw);
