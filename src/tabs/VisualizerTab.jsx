@@ -785,7 +785,7 @@ function VisualizerTab({ songs, onFullscreen }) {
     let sum = 0;
     for (let i = 0; i < freqData.length; i++) sum += freqData[i];
     const volume = sum / freqData.length / 255;
-    const rawAmp = Math.pow(volume, 0.5);
+    const rawAmp = Math.pow(volume, 0.3); // steeper curve → quiet sounds register more
     const amp = Math.min(Math.max(rawAmp, 0.35), 0.85); // floor 0.35, cap 0.85
 
     // Lissajous X-Y mode: sample[i] → X, sample[i + offset] → Y
