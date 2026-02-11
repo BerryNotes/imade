@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, createContext, useContext } from 'react';
+import React, { useState, useRef, useCallback, useEffect, createContext, useContext } from 'react';
 
 const AudioCtx = createContext();
 
@@ -109,6 +109,21 @@ function AudioProvider({ children }) {
     }
   }, []);
 
+  const ensureWebAudioCtx = useCallback(() => {
+    if (webAudioCtxRef.current) return webAudioCtxRef.current;
+    const WACtx = window.AudioContext || window.webkitAudioContext;
+    if (!WACtx) return null;
+    const ctx = new WACtx();
+    webAudioCtxRef.current = ctx;
+    return ctx;
+  }, []);
+
+  const getAudioContext = useCallback(() => {
+    const ctx = ensureWebAudioCtx();
+    if (ctx && ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }, [ensureWebAudioCtx]);
+
   const getAnalyser = useCallback(() => {
     const el = audioRef.current;
     if (!el) return null;
@@ -116,10 +131,8 @@ function AudioProvider({ children }) {
       resumeAudioContext();
       return analyserRef.current;
     }
-    const WACtx = window.AudioContext || window.webkitAudioContext;
-    if (!WACtx) return null;
-    const ctx = new WACtx();
-    webAudioCtxRef.current = ctx;
+    const ctx = ensureWebAudioCtx();
+    if (!ctx) return null;
     const source = ctx.createMediaElementSource(el);
     sourceNodeRef.current = source;
     const analyser = ctx.createAnalyser();
@@ -130,7 +143,44 @@ function AudioProvider({ children }) {
     analyserRef.current = analyser;
     if (ctx.state === 'suspended') ctx.resume();
     return analyser;
-  }, [resumeAudioContext]);
+  }, [resumeAudioContext, ensureWebAudioCtx]);
+
+  // --- Global waveform recording (runs regardless of which tab is open) ---
+  const WAVEFORM_SIZE = 2048;
+  const waveformRef = useRef(null);    // { buffer, songSrc }
+  const waveformTmpRef = useRef(null); // Uint8Array for getByteTimeDomainData
+
+  useEffect(() => {
+    if (!isPlaying) return;
+    const el = audioRef.current;
+    if (!el) return;
+
+    const iv = setInterval(() => {
+      const analyser = analyserRef.current;
+      if (!analyser || !el.duration) return;
+
+      const src = getSrcKey(el.src);
+      // Reset buffer on song change
+      if (!waveformRef.current || waveformRef.current.songSrc !== src) {
+        waveformRef.current = { buffer: new Float32Array(WAVEFORM_SIZE), songSrc: src };
+      }
+
+      // Sample one time-domain value at the position matching current progress
+      if (!waveformTmpRef.current || waveformTmpRef.current.length !== analyser.fftSize) {
+        waveformTmpRef.current = new Uint8Array(analyser.fftSize);
+      }
+      analyser.getByteTimeDomainData(waveformTmpRef.current);
+      const sample = (waveformTmpRef.current[Math.floor(analyser.fftSize / 2)] - 128) / 128;
+
+      const progress = el.currentTime / el.duration;
+      const idx = Math.min(Math.floor(progress * WAVEFORM_SIZE), WAVEFORM_SIZE - 1);
+      waveformRef.current.buffer[idx] = sample;
+    }, 16); // ~60fps sampling
+
+    return () => clearInterval(iv);
+  }, [isPlaying, getSrcKey]);
+
+  const getWaveformBuffer = useCallback(() => waveformRef.current, []);
 
   const audioEl = React.createElement("audio", {
     ref: audioRef,
@@ -141,7 +191,7 @@ function AudioProvider({ children }) {
     style: { display: "none" },
   });
 
-  const value = { play, pause, toggle, seek, skip, stop, subscribe, playingSrc, currentTime, duration, isPlaying, setOnEnded, getSnapshot, volume, setVolume, getAnalyser, resumeAudioContext };
+  const value = { play, pause, toggle, seek, skip, stop, subscribe, playingSrc, currentTime, duration, isPlaying, setOnEnded, getSnapshot, volume, setVolume, getAnalyser, getAudioContext, resumeAudioContext, getWaveformBuffer };
   return React.createElement(AudioCtx.Provider, { value }, audioEl, children);
 }
 

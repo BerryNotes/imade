@@ -18,7 +18,7 @@ const MAX_PARTICLES = 1500;
 
 function VisualizerTab({ songs, onFullscreen }) {
   const audio = useGlobalAudio();
-  const { playingSrc, isPlaying, getAnalyser, resumeAudioContext, toggle, pause, currentTime, duration } = audio;
+  const { playingSrc, isPlaying, getAnalyser, resumeAudioContext, toggle, pause, currentTime, duration, getWaveformBuffer } = audio;
   const canvasRef = useRef(null);
   const rafRef = useRef(null);
   const particlesRef = useRef([]);
@@ -111,8 +111,8 @@ function VisualizerTab({ songs, onFullscreen }) {
   const ringIndexRef = useRef(0);     // counter for evenly distributing orbit particles
   const prevSongRef = useRef(null);   // detect song changes to reset particles
   const particleSpawnedRef = useRef(0); // total particles spawned this song (cap for one-round)
-  const waveBufferRef = useRef(null);  // scrolling waveform buffer
-  const waveWriteRef = useRef(0);      // write position in the buffer
+  const waveBufferRef = useRef(null);  // legacy — kept for compat
+  const waveWriteRef = useRef(0);
   const spectroCanvasRef = useRef(null); // offscreen spectrograph history canvas
   const spectroWriteRef = useRef(0);     // write column position
   const currentTimeRef = useRef(0);
@@ -383,77 +383,70 @@ function VisualizerTab({ songs, onFullscreen }) {
 
   const drawWaveform = (ctx, w, h, data) => {
     const mid = h / 2;
-    const BUFFER_SIZE = 4096;
     const dur = durationRef.current;
     const time = currentTimeRef.current;
-
-    // Init buffer on first call or song change
-    if (!waveBufferRef.current || waveBufferRef.current.length !== BUFFER_SIZE) {
-      waveBufferRef.current = new Float32Array(BUFFER_SIZE);
-      waveWriteRef.current = 0;
-    }
-    const buf = waveBufferRef.current;
-
-    // Write position based on song progress so waveform reaches the end at song end
     const progress = dur > 0 ? Math.min(time / dur, 1) : 0;
-    const targetWrite = Math.floor(progress * BUFFER_SIZE);
 
-    // Fill any new samples since last frame
-    const srcIdx = Math.floor(data.length / 2);
-    const sample = (data[srcIdx] - 128) / 128;
-    while (waveWriteRef.current < targetWrite) {
-      buf[waveWriteRef.current % BUFFER_SIZE] = sample;
-      waveWriteRef.current++;
-    }
+    // Read from global waveform buffer (recorded in AudioProvider)
+    const wfData = getWaveformBuffer();
+    if (!wfData) return;
+    const buf = wfData.buffer;
+    const BUFFER_SIZE = buf.length;
+    const endIdx = Math.floor(progress * BUFFER_SIZE);
+    if (endIdx < 2) return;
 
-    // Build points from buffer up to current write position
-    const numPts = Math.min(BUFFER_SIZE, waveWriteRef.current);
-    if (numPts < 2) return;
+    // Downsample to max ~300 points for smooth rendering
+    const MAX_PTS = 300;
+    const step = Math.max(1, Math.floor(endIdx / MAX_PTS));
+    const drawW = (endIdx / BUFFER_SIZE) * w;
 
-    const pts = [];
-    for (let i = 0; i < numPts; i++) {
-      const x = (i / (BUFFER_SIZE - 1)) * w;
-      pts.push({ x, y: mid + buf[i] * mid * 0.7 });
-    }
-
-    // Draw smooth curve
+    // Draw waveform as line segments (fast path — no quadraticCurveTo)
     ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length - 1; i++) {
-      const cpx = (pts[i].x + pts[i + 1].x) / 2;
-      const cpy = (pts[i].y + pts[i + 1].y) / 2;
-      ctx.quadraticCurveTo(pts[i].x, pts[i].y, cpx, cpy);
+    const x0 = 0;
+    const y0 = mid + buf[0] * mid * 0.7;
+    ctx.moveTo(x0, y0);
+    let lastX = x0, lastY = y0;
+    for (let i = step; i < endIdx; i += step) {
+      const x = (i / BUFFER_SIZE) * w;
+      const y = mid + buf[i] * mid * 0.7;
+      lastX = x; lastY = y;
+      ctx.lineTo(x, y);
     }
-    ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+    // Ensure we hit the exact end position
+    if (endIdx > 0) {
+      const ex = (endIdx / BUFFER_SIZE) * w;
+      const ey = mid + buf[endIdx - 1] * mid * 0.7;
+      ctx.lineTo(ex, ey);
+      lastX = ex; lastY = ey;
+    }
 
-    const drawW = (numPts / BUFFER_SIZE) * w;
     const grad = ctx.createLinearGradient(0, 0, drawW, 0);
     grad.addColorStop(0, '#22c55e');
     grad.addColorStop(0.5, '#818cf8');
     grad.addColorStop(1, '#f59e0b');
     ctx.shadowColor = 'rgba(129,140,248,0.3)';
-    ctx.shadowBlur = 12;
+    ctx.shadowBlur = 8;
     ctx.strokeStyle = grad;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2;
     ctx.lineJoin = 'round';
     ctx.stroke();
     ctx.shadowBlur = 0;
 
     // Fill under curve
-    ctx.lineTo(pts[pts.length - 1].x, mid);
+    ctx.lineTo(lastX, mid);
     ctx.lineTo(0, mid);
     ctx.closePath();
     const fillGrad = ctx.createLinearGradient(0, 0, drawW, 0);
-    fillGrad.addColorStop(0, 'rgba(34,197,94,0.1)');
-    fillGrad.addColorStop(0.5, 'rgba(129,140,248,0.12)');
-    fillGrad.addColorStop(1, 'rgba(245,158,11,0.1)');
+    fillGrad.addColorStop(0, 'rgba(34,197,94,0.08)');
+    fillGrad.addColorStop(0.5, 'rgba(129,140,248,0.1)');
+    fillGrad.addColorStop(1, 'rgba(245,158,11,0.08)');
     ctx.fillStyle = fillGrad;
     ctx.fill();
 
-    // Playhead line at the leading edge
+    // Playhead line
     ctx.beginPath();
-    ctx.moveTo(pts[pts.length - 1].x, 0);
-    ctx.lineTo(pts[pts.length - 1].x, h);
+    ctx.moveTo(lastX, 0);
+    ctx.lineTo(lastX, h);
     ctx.strokeStyle = 'rgba(129,140,248,0.3)';
     ctx.lineWidth = 1;
     ctx.stroke();
