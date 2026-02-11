@@ -395,59 +395,35 @@ function VisualizerTab({ songs, onFullscreen }) {
     const endIdx = Math.floor(progress * BUFFER_SIZE);
     if (endIdx < 2) return;
 
-    const MAX_PTS = 800;
-    const step = Math.max(1, Math.floor(endIdx / MAX_PTS));
-    const drawW = (endIdx / BUFFER_SIZE) * w;
+    // Map buffer directly to pixel columns — one lineTo per pixel column drawn
+    const endX = (endIdx / BUFFER_SIZE) * w;
+    const pxCount = Math.ceil(endX);
+    if (pxCount < 2) return;
 
-    // Build smoothed points — average neighbors to remove jaggedness
-    const halfWin = Math.max(2, step);
     ctx.beginPath();
-    let firstY = 0, lastX = 0;
-    let started = false;
-    for (let i = 0; i < endIdx; i += step) {
-      let sum = 0, count = 0;
-      const lo = Math.max(0, i - halfWin);
-      const hi = Math.min(endIdx, i + halfWin + 1);
-      for (let j = lo; j < hi; j++) { sum += buf[j]; count++; }
-      const x = (i / BUFFER_SIZE) * w;
-      const y = mid + (sum / count) * mid * 0.7;
-      if (!started) { ctx.moveTo(x, y); firstY = y; started = true; }
-      else { ctx.lineTo(x, y); }
-      lastX = x;
+    for (let px = 0; px <= pxCount; px++) {
+      const bufI = Math.floor((px / w) * BUFFER_SIZE);
+      const clamped = Math.min(bufI, endIdx - 1);
+      const y = mid + buf[clamped] * mid * 0.7;
+      if (px === 0) ctx.moveTo(px, y);
+      else ctx.lineTo(px, y);
     }
-    // Hit exact end
-    const ex = ((endIdx - 1) / BUFFER_SIZE) * w;
-    ctx.lineTo(ex, mid + buf[endIdx - 1] * mid * 0.7);
-    lastX = ex;
-    if (!started) return;
 
-    const grad = ctx.createLinearGradient(0, 0, drawW, 0);
-    grad.addColorStop(0, '#22c55e');
-    grad.addColorStop(0.5, '#818cf8');
-    grad.addColorStop(1, '#f59e0b');
-    ctx.shadowColor = 'rgba(129,140,248,0.3)';
-    ctx.shadowBlur = 8;
-    ctx.strokeStyle = grad;
+    ctx.strokeStyle = '#818cf8';
     ctx.lineWidth = 2;
-    ctx.lineJoin = 'round';
     ctx.stroke();
-    ctx.shadowBlur = 0;
 
-    // Fill under curve
-    ctx.lineTo(lastX, mid);
+    // Fill under curve — reuse the existing path
+    ctx.lineTo(pxCount, mid);
     ctx.lineTo(0, mid);
     ctx.closePath();
-    const fillGrad = ctx.createLinearGradient(0, 0, drawW, 0);
-    fillGrad.addColorStop(0, 'rgba(34,197,94,0.08)');
-    fillGrad.addColorStop(0.5, 'rgba(129,140,248,0.1)');
-    fillGrad.addColorStop(1, 'rgba(245,158,11,0.08)');
-    ctx.fillStyle = fillGrad;
+    ctx.fillStyle = 'rgba(129,140,248,0.06)';
     ctx.fill();
 
     // Playhead line
     ctx.beginPath();
-    ctx.moveTo(lastX, 0);
-    ctx.lineTo(lastX, h);
+    ctx.moveTo(pxCount, 0);
+    ctx.lineTo(pxCount, h);
     ctx.strokeStyle = 'rgba(129,140,248,0.3)';
     ctx.lineWidth = 1;
     ctx.stroke();
