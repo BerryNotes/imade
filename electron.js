@@ -6,6 +6,9 @@ let mainWindow;
 
 const isDev = !fs.existsSync(path.join(__dirname, "dist-client", "index.html"));
 
+// Allow audio to play without requiring user gesture in each frame
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
 app.whenReady().then(() => {
   // Store user data (songs, uploads, backups) in a writable location
   process.env.APP_DATA_PATH = app.getPath("userData");

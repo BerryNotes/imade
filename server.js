@@ -208,6 +208,8 @@ app.put("/api/songs/:id", auth, upload.single("audio"), (req, res) => {
     fields.audioName = req.file.originalname;
   }
 
+  if (req.body.notes !== undefined) fields.notes = req.body.notes;
+
   // Handle baseElo — only set when explicitly provided and non-zero
   if (req.body.baseElo !== undefined) {
     const val = parseInt(req.body.baseElo, 10);
@@ -411,6 +413,7 @@ app.post("/api/backup", auth, (req, res) => {
     comparisons: db.getComparisons(userId),
     genres: db.getGenres(userId),
     playlists: db.getPlaylists(userId),
+    listenTimes: db.getListenTimes(userId),
     exportedAt: new Date().toISOString(),
   };
   const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
@@ -446,6 +449,30 @@ app.post("/api/backup/restore/:name", auth, (req, res) => {
     console.error("Restore error:", e);
     res.status(500).json({ error: "Restore failed" });
   }
+});
+
+// ---- LISTEN TIMES ----
+
+app.get("/api/listen-times", auth, (req, res) => {
+  res.json(db.getListenTimes(req.session.userId));
+});
+
+app.put("/api/listen-times", auth, (req, res) => {
+  if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Object required" });
+  db.updateListenTimes(req.session.userId, req.body);
+  res.json({ success: true });
+});
+
+// POST alias for sendBeacon (fires on page unload)
+app.post("/api/listen-times", auth, (req, res) => {
+  if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Object required" });
+  db.updateListenTimes(req.session.userId, req.body);
+  res.json({ success: true });
+});
+
+app.delete("/api/listen-times", auth, (req, res) => {
+  db.deleteListenTimes(req.session.userId);
+  res.json({ success: true });
 });
 
 // ---- COMPARISONS SWAP (for testing) ----

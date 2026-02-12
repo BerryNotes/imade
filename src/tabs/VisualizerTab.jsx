@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useGlobalAudio } from '../components/AudioProvider';
+import { useRanking } from '../hooks/useRanking';
 
 const MODES = [
   { id: 'bars', label: 'Bars' },
@@ -16,7 +17,7 @@ const MODES = [
 
 const MAX_PARTICLES = 1500;
 
-function VisualizerTab({ songs, onFullscreen }) {
+function VisualizerTab({ songs, comparisons, onFullscreen }) {
   const audio = useGlobalAudio();
   const { playingSrc, isPlaying, getAnalyser, resumeAudioContext, toggle, pause, currentTime, duration, getWaveformBuffer } = audio;
   const canvasRef = useRef(null);
@@ -40,6 +41,8 @@ function VisualizerTab({ songs, onFullscreen }) {
   const mouseTimerRef = useRef(null);
 
   const currentSong = playingSrc ? songs.find(s => s.audioFile === playingSrc) : null;
+  const ranking = useRanking(songs, comparisons || []);
+  const currentRank = currentSong ? ranking.standings.findIndex(s => s.id === currentSong.id) + 1 : 0;
 
   // Number keys 1-9,0 switch visualizer mode (0 = mode 10)
   useEffect(() => {
@@ -172,18 +175,16 @@ function VisualizerTab({ songs, onFullscreen }) {
         prevSongRef.current = playingSrcRef.current;
       }
 
-      // Paused — freeze (keep last frame as-is)
-      if (!isPlayingRef.current) {
-        lastRealTimeRef.current = 0; // reset so next frame doesn't get a huge delta
-        rafRef.current = requestAnimationFrame(draw);
-        return;
-      }
-
       // Track accumulated viz time (freezes when paused)
-      const realNow = performance.now() / 1000;
-      const dt = lastRealTimeRef.current > 0 ? Math.min(realNow - lastRealTimeRef.current, 0.1) : 0.016;
-      lastRealTimeRef.current = realNow;
-      vizTimeRef.current += dt;
+      let dt = 0;
+      if (isPlayingRef.current) {
+        const realNow = performance.now() / 1000;
+        dt = lastRealTimeRef.current > 0 ? Math.min(realNow - lastRealTimeRef.current, 0.1) : 0.016;
+        lastRealTimeRef.current = realNow;
+        vizTimeRef.current += dt;
+      } else {
+        lastRealTimeRef.current = 0;
+      }
 
       // Rescale particles if canvas dimensions changed (e.g. fullscreen toggle)
       const prev = prevDimsRef.current;
@@ -1229,6 +1230,36 @@ function VisualizerTab({ songs, onFullscreen }) {
         onMouseLeave={() => { mousePosRef.current = null; }}
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', cursor: 'inherit' }}
       />
+
+      {/* Song info overlay — top-left, auto-hide */}
+      {currentSong && (
+        <div style={{ position: 'absolute', top: 12, left: 16, zIndex: 10, opacity: mouseActive ? 1 : 0, transition: 'opacity 0.3s ease', pointerEvents: 'none' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {currentRank > 0 && (
+              <span style={{
+                background: 'rgba(99,102,241,0.25)',
+                border: '1px solid rgba(129,140,248,0.3)',
+                borderRadius: 8,
+                padding: '4px 10px',
+                fontSize: 13,
+                fontWeight: 700,
+                color: '#818cf8',
+                fontVariantNumeric: 'tabular-nums',
+              }}>#{currentRank}</span>
+            )}
+            <span style={{
+              fontSize: 15,
+              fontWeight: 600,
+              color: '#e2e8f0',
+              textShadow: '0 2px 8px rgba(0,0,0,0.6)',
+              maxWidth: 360,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}>{currentSong.title}</span>
+          </div>
+        </div>
+      )}
 
       {/* Controls overlay — top-right, auto-hide */}
       <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', gap: 6, zIndex: 10, opacity: mouseActive ? 1 : 0, transition: 'opacity 0.3s ease', pointerEvents: mouseActive ? 'auto' : 'none' }}>

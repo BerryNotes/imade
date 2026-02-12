@@ -68,9 +68,15 @@ function App() {
   }, []);
 
   const handleLogout = useCallback(async () => {
+    // Flush listen times before logout
+    if (listenTimesDirtyRef.current) {
+      await api.put("/api/listen-times", listenTimesRef.current).catch(() => {});
+      listenTimesDirtyRef.current = false;
+    }
     await api.logout().catch(() => {});
     setUser(null);
     setSongs([]); setGenres([]); setComparisons([]); setPlaylists([]);
+    setListenTimes({}); listenTimesRef.current = {};
     setLoaded(false);
   }, []);
 
@@ -93,31 +99,19 @@ function App() {
   const headerRef = useRef(null);
   const [headerHeight, setHeaderHeight] = useState(120);
 
-  const [listenTimes, setListenTimes] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("imade_listenTimes") || "{}"); } catch { return {}; }
-  });
+  const [listenTimes, setListenTimes] = useState({});
   const listenTimesRef = useRef(listenTimes);
+  const listenTimesDirtyRef = useRef(false);
   const lastTimeUpdateRef = useRef({ src: null, time: 0 });
 
-  // One-time seed: import listen times from Electron migration if localStorage is empty
+  // Load listen times from server on login
   useEffect(() => {
-    if (localStorage.getItem("imade_listenTimes_seeded")) return;
-    if (Object.keys(listenTimesRef.current).length > 0) {
-      localStorage.setItem("imade_listenTimes_seeded", "1");
-      return;
-    }
-    fetch("/listenTimes.json").then(r => {
-      if (!r.ok) return;
-      return r.json();
-    }).then(data => {
-      if (data && Object.keys(data).length > 0) {
-        listenTimesRef.current = data;
-        setListenTimes(data);
-        localStorage.setItem("imade_listenTimes", JSON.stringify(data));
-      }
-      localStorage.setItem("imade_listenTimes_seeded", "1");
+    if (!user) return;
+    api.get("/api/listen-times").then(data => {
+      listenTimesRef.current = data;
+      setListenTimes(data);
     }).catch(() => {});
-  }, []);
+  }, [user]);
 
   const [updateInfo, setUpdateInfo] = useState(null);
 
@@ -227,6 +221,7 @@ function App() {
       const delta = Math.min(audio.currentTime - last.time, 2);
       if (delta > 0.1) {
         listenTimesRef.current = { ...listenTimesRef.current, [song.id]: (listenTimesRef.current[song.id] || 0) + delta };
+        listenTimesDirtyRef.current = true;
       }
     }
     lastTimeUpdateRef.current = { src: srcKey, time: audio.currentTime };
@@ -240,15 +235,23 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Persist listen times to localStorage every 10 seconds
+  // Persist listen times to server every 15 seconds (only if changed)
   useEffect(() => {
     const interval = setInterval(() => {
-      const data = listenTimesRef.current;
-      if (data && Object.keys(data).length > 0) {
-        localStorage.setItem("imade_listenTimes", JSON.stringify(data));
-      }
-    }, 10000);
-    return () => clearInterval(interval);
+      if (!listenTimesDirtyRef.current) return;
+      listenTimesDirtyRef.current = false;
+      api.put("/api/listen-times", listenTimesRef.current).catch(() => {
+        listenTimesDirtyRef.current = true; // retry next interval
+      });
+    }, 15000);
+    // Flush on page unload
+    const flush = () => {
+      if (!listenTimesDirtyRef.current) return;
+      const data = JSON.stringify(listenTimesRef.current);
+      navigator.sendBeacon("/api/listen-times", new Blob([data], { type: "application/json" }));
+    };
+    window.addEventListener("beforeunload", flush);
+    return () => { clearInterval(interval); window.removeEventListener("beforeunload", flush); };
   }, []);
 
   useEffect(() => {
@@ -486,7 +489,7 @@ function App() {
       {tab === "visualizer" && (
         <React.Suspense fallback={<div style={{textAlign:"center",padding:40,color:"#6b7280"}}>Loading...</div>}>
           <div key="visualizer" style={{padding:"8px 8px 0",animation:"tabFadeIn 0.2s ease-out"}}>
-            <VisualizerTab songs={songs} />
+            <VisualizerTab songs={songs} comparisons={comparisons} />
           </div>
         </React.Suspense>
       )}

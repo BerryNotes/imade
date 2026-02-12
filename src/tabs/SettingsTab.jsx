@@ -353,7 +353,7 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
                 if (effectivePlaylists) for (const pl of playlists) await api.del("/api/playlists/" + pl.id);
                 if (delSongs) for (const s of songs) await api.del("/api/songs/" + s.id);
                 if (delGenres) for (const g of genres) await api.del("/api/genres/" + encodeURIComponent(g));
-                if (delListenHistory) { setListenTimes({}); listenTimesRef.current = {}; localStorage.setItem("imade_listenTimes", "{}"); }
+                if (delListenHistory) { await api.del("/api/listen-times"); setListenTimes({}); listenTimesRef.current = {}; }
                 if (delSongs) localStorage.clear();
                 await onRefresh();
                 showToast("Deleted " + summaryParts.join(", "));

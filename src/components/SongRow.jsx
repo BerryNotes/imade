@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import AudioPlayer from './AudioPlayer';
 import GenreTag from './GenreTag';
 
-function SongRow({ song, onDelete, onEdit, rank, showElo, showWinLoss: showWL, selectable, selected, onToggleSelect, listenTime, playlists, onAddToPlaylist, onAddToQueue, onPlayNext, compact }) {
+function SongRow({ song, onDelete, onEdit, onNotes, rank, showElo, showWinLoss: showWL, selectable, selected, onToggleSelect, listenTime, playlists, onAddToPlaylist, onAddToQueue, onPlayNext, compact }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [playlistSub, setPlaylistSub] = useState(false);
   const menuRef = useRef(null);
@@ -28,6 +28,7 @@ function SongRow({ song, onDelete, onEdit, rank, showElo, showWinLoss: showWL, s
         {rank != null && <span style={{fontSize:compact?11:13,color:rank<=3?"#f59e0b":"#6b6b80",fontWeight:700,minWidth:compact?22:28,textAlign:"right"}}>{rank}</span>}
         <span style={{flex:1,color:"#e2e8f0",fontSize:compact?12:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{song.title}</span>
         {listenTime && fmtTime(listenTime) && <span style={{color:"#22c55e80",fontSize:9,flexShrink:0}}>♪{fmtTime(listenTime)}</span>}
+        {song.notes && <span title="Has notes" style={{color:"#6b6b80",fontSize:10,flexShrink:0,lineHeight:1}}>📝</span>}
         <GenreTag genre={song.genre} compact={compact} />
         {!compact && <span style={{color:"#5a5a70",fontSize:11,flexShrink:0}}>{song.date}</span>}
         {showElo && song.elo != null && <span style={{color:"#818cf8",fontSize:11,fontWeight:600,flexShrink:0}}>{song.elo}</span>}
@@ -45,6 +46,12 @@ function SongRow({ song, onDelete, onEdit, rank, showElo, showWinLoss: showWL, s
                   <button onClick={e=>{e.stopPropagation();setMenuOpen(false);onEdit(song)}} style={{...menuItemStyle,borderRadius:"10px 10px 0 0"}}
                     onMouseEnter={e=>e.currentTarget.style.background="#2a2a45"} onMouseLeave={e=>e.currentTarget.style.background="none"}>
                     <span style={{fontSize:13}}>✏️</span> Edit
+                  </button>
+                )}
+                {onNotes && (
+                  <button onClick={e=>{e.stopPropagation();setMenuOpen(false);onNotes(song)}} style={menuItemStyle}
+                    onMouseEnter={e=>e.currentTarget.style.background="#2a2a45"} onMouseLeave={e=>e.currentTarget.style.background="none"}>
+                    <span style={{fontSize:13}}>📝</span> Notes
                   </button>
                 )}
                 {onAddToQueue && song.audioFile && (

@@ -37,10 +37,16 @@ function AudioProvider({ children }) {
     if (currentKey !== src) {
       el.src = src;
     }
+    // Resume Web Audio context if it was suspended (e.g. after using visualizer)
+    if (webAudioCtxRef.current && webAudioCtxRef.current.state === 'suspended') {
+      webAudioCtxRef.current.resume();
+    }
     el.play().then(() => {
       if (playAttemptRef.current !== attemptId) return;
       setIsPlaying(true); isPlayingRef.current = true; setPlayingSrc(src); notify();
-    }).catch(() => {});
+    }).catch((err) => {
+      console.warn("[iMade] audio play failed:", err?.message || err);
+    });
   }, [notify, getSrcKey]);
 
   const pause = useCallback(() => {
@@ -188,6 +194,7 @@ function AudioProvider({ children }) {
     onTimeUpdate: () => { setCurrentTime(audioRef.current?.currentTime || 0); },
     onLoadedMetadata: () => { setDuration(audioRef.current?.duration || 0); },
     onEnded: () => { setIsPlaying(false); isPlayingRef.current = false; notify(); if (onEndedRef.current) onEndedRef.current(); },
+    onError: (e) => { console.warn("[iMade] audio load error:", audioRef.current?.error?.message || e.type, "src:", audioRef.current?.src); },
     style: { display: "none" },
   });
 

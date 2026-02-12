@@ -15,6 +15,7 @@ function getDb() {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   initSchema(db);
+  migrateSchema(db);
   return db;
 }
 
@@ -71,6 +72,13 @@ function initSchema(db) {
       PRIMARY KEY (playlist_id, song_id)
     );
 
+    CREATE TABLE IF NOT EXISTS listen_times (
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      song_id TEXT NOT NULL,
+      seconds REAL NOT NULL DEFAULT 0,
+      PRIMARY KEY (user_id, song_id)
+    );
+
     CREATE TABLE IF NOT EXISTS sessions (
       sid TEXT PRIMARY KEY,
       sess TEXT NOT NULL,
@@ -83,6 +91,13 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_playlists_user ON playlists(user_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_expired ON sessions(expired);
   `);
+}
+
+function migrateSchema(db) {
+  const cols = db.prepare("PRAGMA table_info(songs)").all().map(c => c.name);
+  if (!cols.includes("notes")) {
+    db.exec("ALTER TABLE songs ADD COLUMN notes TEXT DEFAULT ''");
+  }
 }
 
 // --- User helpers ---
@@ -113,9 +128,9 @@ function getSongById(id, userId) {
 
 function insertSong(song, userId) {
   const stmt = getDb().prepare(
-    "INSERT INTO songs (id, user_id, title, date, genre, audio_file, audio_name, base_elo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO songs (id, user_id, title, date, genre, audio_file, audio_name, base_elo, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
   );
-  stmt.run(song.id, userId, song.title, song.date || null, song.genre || "", song.audioFile || null, song.audioName || null, song.baseElo || 0);
+  stmt.run(song.id, userId, song.title, song.date || null, song.genre || "", song.audioFile || null, song.audioName || null, song.baseElo || 0, song.notes || "");
 }
 
 function updateSong(id, userId, fields) {
@@ -127,6 +142,7 @@ function updateSong(id, userId, fields) {
   if (fields.audioFile !== undefined) { sets.push("audio_file = ?"); vals.push(fields.audioFile); }
   if (fields.audioName !== undefined) { sets.push("audio_name = ?"); vals.push(fields.audioName); }
   if (fields.baseElo !== undefined) { sets.push("base_elo = ?"); vals.push(fields.baseElo); }
+  if (fields.notes !== undefined) { sets.push("notes = ?"); vals.push(fields.notes); }
   if (sets.length === 0) return;
   vals.push(id, userId);
   getDb().prepare(`UPDATE songs SET ${sets.join(", ")} WHERE id = ? AND user_id = ?`).run(...vals);
@@ -157,6 +173,7 @@ function rowToSong(row) {
     audioName: row.audio_name,
   };
   if (row.base_elo > 0) song.baseElo = row.base_elo;
+  if (row.notes) song.notes = row.notes;
   return song;
 }
 
@@ -274,6 +291,31 @@ function deletePlaylist(id, userId) {
   getDb().prepare("DELETE FROM playlists WHERE id = ? AND user_id = ?").run(id, userId);
 }
 
+// --- Listen time helpers ---
+
+function getListenTimes(userId) {
+  const rows = getDb().prepare("SELECT song_id, seconds FROM listen_times WHERE user_id = ?").all(userId);
+  const result = {};
+  for (const r of rows) result[r.song_id] = r.seconds;
+  return result;
+}
+
+function updateListenTimes(userId, times) {
+  const stmt = getDb().prepare(
+    "INSERT INTO listen_times (user_id, song_id, seconds) VALUES (?, ?, ?) ON CONFLICT(user_id, song_id) DO UPDATE SET seconds = MAX(seconds, excluded.seconds)"
+  );
+  const tx = getDb().transaction(() => {
+    for (const [songId, seconds] of Object.entries(times)) {
+      if (seconds > 0) stmt.run(userId, songId, seconds);
+    }
+  });
+  tx();
+}
+
+function deleteListenTimes(userId) {
+  getDb().prepare("DELETE FROM listen_times WHERE user_id = ?").run(userId);
+}
+
 // --- Session store helpers (for express-session) ---
 
 function getSession(sid) {
@@ -301,6 +343,7 @@ function cleanExpiredSessions() {
 function bulkReplace(userId, data) {
   const tx = getDb().transaction(() => {
     // Clear existing data for user
+    getDb().prepare("DELETE FROM listen_times WHERE user_id = ?").run(userId);
     getDb().prepare("DELETE FROM playlist_songs WHERE playlist_id IN (SELECT id FROM playlists WHERE user_id = ?)").run(userId);
     getDb().prepare("DELETE FROM playlists WHERE user_id = ?").run(userId);
     getDb().prepare("DELETE FROM comparisons WHERE user_id = ?").run(userId);
@@ -310,10 +353,10 @@ function bulkReplace(userId, data) {
     // Re-insert songs
     if (data.songs) {
       const stmt = getDb().prepare(
-        "INSERT INTO songs (id, user_id, title, date, genre, audio_file, audio_name, base_elo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO songs (id, user_id, title, date, genre, audio_file, audio_name, base_elo, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
       );
       for (const s of data.songs) {
-        stmt.run(s.id, userId, s.title, s.date || null, s.genre || "", s.audioFile || null, s.audioName || null, s.baseElo || 0);
+        stmt.run(s.id, userId, s.title, s.date || null, s.genre || "", s.audioFile || null, s.audioName || null, s.baseElo || 0, s.notes || "");
       }
     }
 
@@ -346,6 +389,16 @@ function bulkReplace(userId, data) {
         }
       }
     }
+
+    // Re-insert listen times
+    if (data.listenTimes && typeof data.listenTimes === "object") {
+      const stmt = getDb().prepare(
+        "INSERT INTO listen_times (user_id, song_id, seconds) VALUES (?, ?, ?)"
+      );
+      for (const [songId, seconds] of Object.entries(data.listenTimes)) {
+        if (seconds > 0) stmt.run(userId, songId, seconds);
+      }
+    }
   });
   tx();
 }
@@ -357,6 +410,7 @@ module.exports = {
   getComparisons, insertComparison, deleteLastComparison, deleteAllComparisons,
   getGenres, addGenre, deleteGenre, renameGenre, setGenres,
   getPlaylists, insertPlaylist, updatePlaylist, deletePlaylist,
+  getListenTimes, updateListenTimes, deleteListenTimes,
   getSession, setSession, destroySession, cleanExpiredSessions,
   bulkReplace,
 };

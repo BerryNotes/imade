@@ -13,6 +13,9 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
   const [editingSong, setEditingSong] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [batchSaving, setBatchSaving] = useState(false);
+  const [notesSong, setNotesSong] = useState(null);
+  const [notesText, setNotesText] = useState("");
+  const [notesSaving, setNotesSaving] = useState(false);
   const { play } = useGlobalAudio();
 
   const handleSave = async (fd, id) => {
@@ -27,6 +30,7 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
     catch (e) { showToast("Failed to delete song"); }
   }, [onRefresh, showToast]);
   const openEdit = useCallback((s) => { setEditingSong(s); setModalOpen(true); }, []);
+  const openNotes = useCallback((s) => { setNotesSong(s); setNotesText(s.notes || ""); }, []);
 
   const toggleSelect = useCallback((id) => {
     setSelectedIds(prev => {
@@ -173,6 +177,7 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
               <SongRow key={s.id} song={s}
                 onDelete={selectMode ? undefined : handleDelete}
                 onEdit={selectMode ? undefined : openEdit}
+                onNotes={selectMode ? undefined : openNotes}
                 selectable={selectMode}
                 selected={selectedIds.has(s.id)}
                 onToggleSelect={toggleSelect}
@@ -208,6 +213,46 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
 
       <Modal open={modalOpen} onClose={()=>{setModalOpen(false);setEditingSong(null)}}>
         <SongEditForm song={editingSong} genres={genres} onSave={handleSave} onCancel={()=>{setModalOpen(false);setEditingSong(null)}} />
+      </Modal>
+
+      <Modal open={!!notesSong} onClose={()=>setNotesSong(null)}>
+        {notesSong && (
+          <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:340}}>
+            <h3 style={{color:"#e2e8f0",fontSize:16,fontWeight:600,margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{notesSong.title}</h3>
+            <textarea
+              value={notesText}
+              onChange={e=>setNotesText(e.target.value)}
+              placeholder="Add notes about this song..."
+              rows={6}
+              style={{width:"100%",background:"#0d0d1a",border:"1px solid #2a2a45",borderRadius:8,padding:12,color:"#e2e8f0",fontSize:13,resize:"vertical",outline:"none",fontFamily:"inherit",lineHeight:1.5}}
+              onFocus={e=>{e.target.style.borderColor="#4338ca";e.target.style.boxShadow="0 0 0 3px rgba(67,56,202,0.15)"}}
+              onBlur={e=>{e.target.style.borderColor="#2a2a45";e.target.style.boxShadow="none"}}
+            />
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <button onClick={()=>setNotesSong(null)}
+                style={{background:"none",border:"1px solid #2a2a45",borderRadius:8,padding:"8px 16px",color:"#8a8aa0",fontSize:12,cursor:"pointer"}}
+                onMouseEnter={e=>e.target.style.borderColor="#4338ca"} onMouseLeave={e=>e.target.style.borderColor="#2a2a45"}>
+                Cancel
+              </button>
+              <button
+                disabled={notesSaving}
+                onClick={async ()=>{
+                  setNotesSaving(true);
+                  try {
+                    const fd = new FormData();
+                    fd.append("notes", notesText);
+                    await api.put("/api/songs/"+notesSong.id, fd);
+                    await onRefresh();
+                    setNotesSong(null);
+                  } catch(e) { showToast("Failed to save notes"); }
+                  setNotesSaving(false);
+                }}
+                style={{background:"linear-gradient(135deg,#4338ca,#6366f1)",border:"none",borderRadius:8,padding:"8px 20px",color:"#fff",fontSize:12,cursor:"pointer",fontWeight:600,opacity:notesSaving?0.6:1}}>
+                {notesSaving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
       <ScrollToTop />
     </div>
