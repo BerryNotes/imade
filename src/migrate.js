@@ -11,7 +11,7 @@
 
 const path = require("path");
 const fs = require("fs");
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs");
 
 // Allow overriding the data path (e.g. for migrating packaged app data)
 const dataPathArg = process.argv.indexOf("--data-path");

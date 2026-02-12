@@ -16,7 +16,7 @@
     "build:all": "vite build && electron-builder -mwl"
   },
   "dependencies": {
-    "bcrypt": "^6.0.0",
+    "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.6.2",
     "express": "^4.18.2",
     "express-session": "^1.19.0",
@@ -35,8 +35,7 @@
     "productName": "iMade",
     "asar": true,
     "asarUnpack": [
-      "node_modules/better-sqlite3/**",
-      "node_modules/bcrypt/**"
+      "node_modules/better-sqlite3/**"
     ],
     "win": {
       "target": "zip",

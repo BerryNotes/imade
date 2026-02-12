@@ -70,7 +70,7 @@ function electronAutoLogin(req, res, next) {
   let user = db.getUserByUsername("local");
   if (!user) {
     // bcrypt not needed for auto-login — use a placeholder hash
-    const bcrypt = require("bcrypt");
+    const bcrypt = require("bcryptjs");
     const hash = bcrypt.hashSync("local-electron-user", 10);
     db.createUser("local", hash);
     user = db.getUserByUsername("local");
