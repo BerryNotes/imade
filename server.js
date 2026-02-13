@@ -42,7 +42,7 @@ app.use(createSessionMiddleware());
 const ADMIN_ORIGIN = process.env.ADMIN_ORIGIN || "https://admin.imade.one";
 app.use("/api/admin", (req, res, next) => {
   res.header("Access-Control-Allow-Origin", ADMIN_ORIGIN);
-  res.header("Access-Control-Allow-Methods", "GET, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
@@ -590,6 +590,23 @@ app.post("/api/admin/verify", (req, res) => {
 });
 
 app.get("/api/admin/users", requireAdmin, (req, res) => {
+  res.json(db.getAllUsersWithStats());
+});
+
+app.post("/api/admin/users", requireAdmin, async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: "Username and password required" });
+  if (username.length < 2) return res.status(400).json({ error: "Username must be at least 2 characters" });
+  if (password.length < 4) return res.status(400).json({ error: "Password must be at least 4 characters" });
+  const existing = db.getUserByUsername(username.trim());
+  if (existing) return res.status(409).json({ error: "Username already taken" });
+  const hash = await bcrypt.hash(password, 10);
+  db.createUser(username.trim(), hash);
+  const user = db.getUserByUsername(username.trim());
+  const defaultGenres = ["Hip Hop", "R&B", "Pop", "Rock", "Electronic", "Jazz", "Lo-Fi", "Soul", "Funk", "Indie", "Ambient", "Trap", "Acoustic", "Experimental", "Other"];
+  for (const g of defaultGenres) db.addGenre(g, user.id);
+  const userUploads = path.join(UPLOADS_DIR, String(user.id));
+  if (!fs.existsSync(userUploads)) fs.mkdirSync(userUploads, { recursive: true });
   res.json(db.getAllUsersWithStats());
 });
 
