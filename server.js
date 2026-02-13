@@ -6,10 +6,24 @@ const bcrypt = require("bcryptjs");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const IMADE_MODE = process.env.IMADE_MODE || "web"; // "electron" or "web"
+
+// In web mode, share the Electron app's data directory if it exists
+const SHARED_MODE = !process.env.APP_DATA_PATH && IMADE_MODE === "web" && (() => {
+  const appData = process.env.APPDATA || (process.platform === "darwin"
+    ? path.join(require("os").homedir(), "Library", "Application Support")
+    : path.join(require("os").homedir(), ".config"));
+  const electronDir = path.join(appData, "imade");
+  if (fs.existsSync(path.join(electronDir, "data"))) {
+    process.env.APP_DATA_PATH = electronDir;
+    return true;
+  }
+  return false;
+})();
+
 const BASE_DIR = process.env.APP_DATA_PATH || __dirname;
 const UPLOADS_DIR = path.join(BASE_DIR, "uploads");
 const BACKUPS_DIR = path.join(BASE_DIR, "backups");
-const IMADE_MODE = process.env.IMADE_MODE || "web"; // "electron" or "web"
 
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
@@ -24,8 +38,8 @@ const { createSessionMiddleware, requireAuth, electronAutoLogin } = require("./s
 app.use(express.json());
 app.use(createSessionMiddleware());
 
-// Auth middleware — Electron auto-logs in, web requires login
-const auth = IMADE_MODE === "electron" ? electronAutoLogin : requireAuth;
+// Auth middleware — auto-login when running locally (Electron or shared mode)
+const auth = (IMADE_MODE === "electron" || SHARED_MODE) ? electronAutoLogin : requireAuth;
 
 // ---- AUTH ROUTES (web mode only) ----
 
@@ -86,13 +100,13 @@ app.post("/api/logout", (req, res) => {
 
 app.get("/api/me", (req, res) => {
   if (!req.session || !req.session.userId) {
-    // In electron mode, auto-login creates the session
-    if (IMADE_MODE === "electron") {
-      let user = db.getUserByUsername("local");
+    // In electron/shared mode, auto-login creates the session
+    if (IMADE_MODE === "electron" || SHARED_MODE) {
+      let user = db.getUserByUsername("admin");
       if (!user) {
-        const hash = bcrypt.hashSync("local-electron-user", 10);
-        db.createUser("local", hash);
-        user = db.getUserByUsername("local");
+        const hash = bcrypt.hashSync("admin", 10);
+        db.createUser("admin", hash);
+        user = db.getUserByUsername("admin");
       }
       req.session.userId = user.id;
       return res.json({ user: { id: user.id, username: user.username } });

@@ -167,6 +167,7 @@ function App() {
       // Only active on visualizer tab, and not when typing in inputs
       if (tab !== 'visualizer') return;
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+      if (e.repeat) return; // ignore held keys — single press only
       if (e.key === ' ') {
         e.preventDefault();
         if (audio.playingSrc) audio.toggle(audio.playingSrc);

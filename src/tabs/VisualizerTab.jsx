@@ -3,10 +3,9 @@ import { useGlobalAudio } from '../components/AudioProvider';
 import { useRanking } from '../hooks/useRanking';
 
 const MODES = [
-  { id: 'bars', label: 'Bars' },
+  { id: 'bars', label: 'EQ' },
   { id: 'radial', label: 'Radial' },
   { id: 'wave', label: 'Wave' },
-  { id: 'eq', label: 'EQ' },
   { id: 'spectrograph', label: 'Spectrograph' },
   { id: 'particles', label: 'Particles' },
   { id: 'orbit', label: 'Orbit' },
@@ -39,15 +38,18 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
   const containerRef = useRef(null);
   const [mouseActive, setMouseActive] = useState(true);
   const mouseTimerRef = useRef(null);
+  const fxRef = useRef(false); // special effect toggle (Shift key)
 
   const currentSong = playingSrc ? songs.find(s => s.audioFile === playingSrc) : null;
   const ranking = useRanking(songs, comparisons || []);
   const currentRank = currentSong ? ranking.standings.findIndex(s => s.id === currentSong.id) + 1 : 0;
 
-  // Number keys 1-9,0 switch visualizer mode (0 = mode 10)
+  // Number keys 1-9,0 switch visualizer mode; Shift toggles special effect
   useEffect(() => {
     const handler = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+      if (e.repeat) return; // ignore held keys — single press only
+      if (e.key === 'Shift') { fxRef.current = !fxRef.current; return; }
       const raw = parseInt(e.key, 10);
       if (isNaN(raw)) return;
       const num = raw === 0 ? 10 : raw; // 0 key → mode 10
@@ -118,6 +120,8 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
   const waveWriteRef = useRef(0);
   const spectroCanvasRef = useRef(null); // offscreen spectrograph history canvas
   const spectroWriteRef = useRef(0);     // write column position
+  const lastFreqDataRef = useRef(null);  // cached freq data for freeze frame
+  const lastTimeDataRef = useRef(null);  // cached time data for freeze frame
   const currentTimeRef = useRef(0);
   const durationRef = useRef(0);
   useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
@@ -264,17 +268,25 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
       }
 
       const bufLen = analyser.frequencyBinCount;
-      const freqData = new Uint8Array(bufLen);
-      const timeData = new Uint8Array(analyser.fftSize);
-      analyser.getByteFrequencyData(freqData);
-      analyser.getByteTimeDomainData(timeData);
+      let freqData, timeData;
+      if (isPlayingRef.current) {
+        freqData = new Uint8Array(bufLen);
+        timeData = new Uint8Array(analyser.fftSize);
+        analyser.getByteFrequencyData(freqData);
+        analyser.getByteTimeDomainData(timeData);
+        lastFreqDataRef.current = freqData;
+        lastTimeDataRef.current = timeData;
+      } else {
+        // Freeze frame — reuse last captured data so FX toggles still redraw
+        freqData = lastFreqDataRef.current || new Uint8Array(bufLen);
+        timeData = lastTimeDataRef.current || new Uint8Array(analyser.fftSize);
+      }
 
       sphereTimeRef.current += dt;
 
       if (mode === 'bars') drawBars(ctx, w, h, freqData);
       else if (mode === 'radial') drawRadial(ctx, w, h, freqData);
       else if (mode === 'wave') drawWaveSingle(ctx, w, h, timeData);
-      else if (mode === 'eq') drawEQ(ctx, w, h, freqData);
       else if (mode === 'spectrograph') drawSpectrograph(ctx, w, h, freqData, canvas);
       else if (mode === 'particles') drawParticles(ctx, w, h, freqData, vizTimeRef.current);
       else if (mode === 'orbit') drawOrbit(ctx, w, h, freqData, vizTimeRef.current, dt);
@@ -303,29 +315,51 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     const totalGap = usableW * 0.15;
     const gap = totalGap / (barCount + 1);
     const barW = (usableW - totalGap) / barCount;
-    ctx.shadowColor = 'rgba(129,140,248,0.35)';
-    ctx.shadowBlur = 16;
+    const t = performance.now() / 1000;
+
+    const maxBin = Math.floor(data.length * 0.68);
+    const vals = [];
     for (let i = 0; i < barCount; i++) {
-      const maxBin = Math.floor(data.length * 0.68); // ~15kHz, skip 15k-20k range
       const center = Math.floor(i * maxBin / barCount);
       const span = Math.max(1, Math.floor(maxBin / barCount / 2));
       let sum = 0, count = 0;
       for (let j = Math.max(0, center - span); j <= Math.min(data.length - 1, center + span); j++) { sum += data[j]; count++; }
-      const val = Math.pow((sum / count) / 255, 0.75); // power curve for more dramatic movement
+      vals.push(Math.pow((sum / count) / 255, 0.75));
+    }
+
+    // FX: subtle color shifting — hue slowly cycles and reacts to frequency
+    const colorShift = fxRef.current;
+
+    ctx.shadowColor = 'rgba(129,140,248,0.35)';
+    ctx.shadowBlur = 16;
+    for (let i = 0; i < barCount; i++) {
+      const val = vals[i];
       const barH = val * h * 0.85;
       const x = margin + gap + i * (barW + gap);
       const pct = i / barCount;
-      // Dark indigo at low freq → bright lavender at high freq
-      const rC = Math.floor(80 + pct * 120);
-      const gC = Math.floor(60 + pct * 130);
-      const bC = Math.floor(200 + pct * 55);
-      const topR = Math.min(255, rC + 40);
-      const topG = Math.min(255, gC + 50);
-      const topB = Math.min(255, bC + 20);
-      const grad = ctx.createLinearGradient(x, h, x, h - barH);
-      grad.addColorStop(0, `rgba(${rC},${gC},${bC},0.9)`);
-      grad.addColorStop(1, `rgba(${topR},${topG},${topB},0.7)`);
-      ctx.fillStyle = grad;
+
+      if (colorShift) {
+        // Hue cycles slowly over time, each bar offset by position
+        const hue = (t * 25 + pct * 120 + val * 60) % 360;
+        const sat = 65 + val * 20;
+        const light = 50 + val * 15;
+        const grad = ctx.createLinearGradient(x, h, x, h - barH);
+        grad.addColorStop(0, `hsla(${hue}, ${sat}%, ${light - 10}%, 0.9)`);
+        grad.addColorStop(1, `hsla(${hue + 20}, ${sat + 10}%, ${light + 10}%, 0.75)`);
+        ctx.fillStyle = grad;
+      } else {
+        const rC = Math.floor(80 + pct * 120);
+        const gC = Math.floor(60 + pct * 130);
+        const bC = Math.floor(200 + pct * 55);
+        const topR = Math.min(255, rC + 40);
+        const topG = Math.min(255, gC + 50);
+        const topB = Math.min(255, bC + 20);
+        const grad = ctx.createLinearGradient(x, h, x, h - barH);
+        grad.addColorStop(0, `rgba(${rC},${gC},${bC},0.9)`);
+        grad.addColorStop(1, `rgba(${topR},${topG},${topB},0.7)`);
+        ctx.fillStyle = grad;
+      }
+
       const r = Math.min(barW / 2, 6);
       ctx.beginPath();
       ctx.moveTo(x, h);
@@ -341,6 +375,8 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
   };
 
   const drawRadial = (ctx, w, h, data) => {
+    if (fxRef.current) { drawRadialSphere(ctx, w, h, data); return; }
+
     const cx = w / 2;
     const cy = h / 2;
     const innerR = Math.min(w, h) * 0.12;
@@ -376,6 +412,107 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
       ctx.beginPath();
       ctx.moveTo(cx + Math.cos(angle) * innerR, cy + Math.sin(angle) * innerR);
       ctx.lineTo(cx + Math.cos(angle) * (innerR + barLen), cy + Math.sin(angle) * (innerR + barLen));
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+    ctx.lineCap = 'butt';
+  };
+
+  const drawRadialSphere = (ctx, w, h, data) => {
+    const cx = w / 2;
+    const cy = h / 2;
+    const sphereR = Math.min(w, h) * 0.18;
+    const maxBarLen = Math.min(w, h) * 0.24;
+    const maxBin = Math.floor(data.length * 0.68);
+    const t = vizTimeRef.current;
+
+    // 3D rotation — all three axes at different speeds
+    const rotX = t * 0.15;
+    const rotY = t * 0.22;
+    const rotZ = t * 0.08;
+    const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+    const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+    const cosZ = Math.cos(rotZ), sinZ = Math.sin(rotZ);
+
+    const project = (x3, y3, z3) => {
+      // Rotate X
+      const y1 = y3 * cosX - z3 * sinX;
+      const z1 = y3 * sinX + z3 * cosX;
+      // Rotate Y
+      const x2 = x3 * cosY + z1 * sinY;
+      const z2 = -x3 * sinY + z1 * cosY;
+      // Rotate Z
+      const xf = x2 * cosZ - y1 * sinZ;
+      const yf = x2 * sinZ + y1 * cosZ;
+      const perspective = 600;
+      const scale = perspective / (perspective + z2);
+      return { x: cx + xf * scale, y: cy + yf * scale, z: z2, scale };
+    };
+
+    // Distribute bars across sphere surface using latitude bands
+    // Latitude maps to frequency: equator = bass, poles = highs
+    const latBands = 10;
+    const bars = [];
+    let freqCursor = 0;
+
+    for (let lat = 1; lat < latBands; lat++) {
+      const theta = (lat / latBands) * Math.PI;
+      const ny = Math.cos(theta);
+      const ringR = Math.sin(theta);
+      // More bars near equator (larger ring), fewer near poles
+      const lonCount = Math.max(6, Math.round(14 * ringR));
+
+      for (let lon = 0; lon < lonCount; lon++) {
+        const phi = (lon / lonCount) * Math.PI * 2;
+        const nx = ringR * Math.cos(phi);
+        const nz = ringR * Math.sin(phi);
+
+        // Map this bar to a frequency bin
+        const binIdx = Math.min(Math.floor(freqCursor), maxBin - 1);
+        freqCursor += maxBin / 120; // ~120 total bars across all bands
+        const raw = data[binIdx] / 255;
+        const val = Math.pow(raw, 0.75);
+
+        // Project base (on sphere) and tip (extended outward)
+        const base = project(nx * sphereR, ny * sphereR, nz * sphereR);
+        const tipR = sphereR + val * maxBarLen;
+        const tip = project(nx * tipR, ny * tipR, nz * tipR);
+
+        bars.push({ base, tip, val, lat, phi });
+      }
+    }
+
+    // Sort by depth — draw far bars first
+    bars.sort((a, b) => a.base.z - b.base.z);
+
+    // Subtle sphere glow
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) sum += data[i];
+    const avg = sum / data.length / 255;
+    const glowR = sphereR * (1.1 + avg * 0.3);
+    const glow = ctx.createRadialGradient(cx, cy, sphereR * 0.1, cx, cy, glowR);
+    glow.addColorStop(0, `rgba(99,102,241,${0.08 + avg * 0.1})`);
+    glow.addColorStop(0.7, `rgba(129,140,248,${0.03 + avg * 0.04})`);
+    glow.addColorStop(1, 'rgba(67,56,202,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(cx, cy, glowR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Draw frequency bars extending from sphere surface
+    ctx.lineCap = 'round';
+    ctx.shadowColor = 'rgba(129,140,248,0.2)';
+    ctx.shadowBlur = 8;
+    for (const b of bars) {
+      const depth = (b.base.z + sphereR) / (2 * sphereR); // 0=far, 1=near
+      const alpha = 0.15 + depth * 0.55 + b.val * 0.3;
+      const hue = 240 + (b.lat / latBands) * 40;
+      const lightness = 50 + b.val * 30 + depth * 10;
+      ctx.strokeStyle = `hsla(${hue}, 65%, ${lightness}%, ${Math.min(1, alpha)})`;
+      ctx.lineWidth = Math.max(1.5, 3 * b.base.scale);
+      ctx.beginPath();
+      ctx.moveTo(b.base.x, b.base.y);
+      ctx.lineTo(b.tip.x, b.tip.y);
       ctx.stroke();
     }
     ctx.shadowBlur = 0;
@@ -418,95 +555,6 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
   };
 
   // EQ — frequency domain as a smooth curve (amplitude vs frequency)
-  const drawEQ = (ctx, w, h, freqData) => {
-    const mid = h / 2;
-    const sampleRate = 44100;
-    const binHz = sampleRate / 512; // ~86Hz per bin
-    const minBin = Math.max(1, Math.ceil(10 / binHz));
-    const maxBin = Math.min(Math.floor(16000 / binHz), freqData.length);
-    const range = maxBin - minBin;
-
-    // Build points from frequency data
-    const pts = [];
-    for (let i = minBin; i < maxBin; i++) {
-      const x = ((i - minBin) / (range - 1)) * w;
-      const val = freqData[i] / 255;
-      pts.push({ x, y: mid - val * mid * 0.85 });
-    }
-
-    // Mirror below center line for symmetry
-    const ptsBottom = pts.map(p => ({ x: p.x, y: mid + (mid - p.y) }));
-
-    // Draw top curve
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length - 1; i++) {
-      const cpx = (pts[i].x + pts[i + 1].x) / 2;
-      const cpy = (pts[i].y + pts[i + 1].y) / 2;
-      ctx.quadraticCurveTo(pts[i].x, pts[i].y, cpx, cpy);
-    }
-    ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
-
-    // Continue to bottom curve (mirrored) to close the shape
-    ctx.lineTo(ptsBottom[ptsBottom.length - 1].x, ptsBottom[ptsBottom.length - 1].y);
-    for (let i = ptsBottom.length - 2; i >= 1; i--) {
-      const cpx = (ptsBottom[i].x + ptsBottom[i - 1].x) / 2;
-      const cpy = (ptsBottom[i].y + ptsBottom[i - 1].y) / 2;
-      ctx.quadraticCurveTo(ptsBottom[i].x, ptsBottom[i].y, cpx, cpy);
-    }
-    ctx.lineTo(ptsBottom[0].x, ptsBottom[0].y);
-    ctx.closePath();
-
-    // Fill gradient
-    const fillGrad = ctx.createLinearGradient(0, 0, w, 0);
-    fillGrad.addColorStop(0, 'rgba(99,102,241,0.15)');
-    fillGrad.addColorStop(0.4, 'rgba(168,85,247,0.12)');
-    fillGrad.addColorStop(1, 'rgba(236,72,153,0.08)');
-    ctx.fillStyle = fillGrad;
-    ctx.fill();
-
-    // Stroke top curve
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length - 1; i++) {
-      const cpx = (pts[i].x + pts[i + 1].x) / 2;
-      const cpy = (pts[i].y + pts[i + 1].y) / 2;
-      ctx.quadraticCurveTo(pts[i].x, pts[i].y, cpx, cpy);
-    }
-    ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
-    const grad = ctx.createLinearGradient(0, 0, w, 0);
-    grad.addColorStop(0, '#6366f1');
-    grad.addColorStop(0.5, '#a855f7');
-    grad.addColorStop(1, '#ec4899');
-    ctx.strokeStyle = grad;
-    ctx.lineWidth = 2.5;
-    ctx.shadowColor = 'rgba(139,92,246,0.4)';
-    ctx.shadowBlur = 10;
-    ctx.stroke();
-
-    // Stroke bottom curve (mirrored)
-    ctx.beginPath();
-    ctx.moveTo(ptsBottom[0].x, ptsBottom[0].y);
-    for (let i = 1; i < ptsBottom.length - 1; i++) {
-      const cpx = (ptsBottom[i].x + ptsBottom[i + 1].x) / 2;
-      const cpy = (ptsBottom[i].y + ptsBottom[i + 1].y) / 2;
-      ctx.quadraticCurveTo(ptsBottom[i].x, ptsBottom[i].y, cpx, cpy);
-    }
-    ctx.lineTo(ptsBottom[ptsBottom.length - 1].x, ptsBottom[ptsBottom.length - 1].y);
-    ctx.strokeStyle = grad;
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    // Center line
-    ctx.beginPath();
-    ctx.moveTo(0, mid);
-    ctx.lineTo(w, mid);
-    ctx.strokeStyle = 'rgba(148,163,184,0.15)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-  };
-
   // Spectrograph — scrolling frequency-vs-time heatmap
   const drawSpectrograph = (ctx, w, h, freqData, canvas) => {
     const dpr = window.devicePixelRatio || 1;
@@ -958,7 +1006,7 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     // The offset creates the phase difference that produces circles/figures
     const len = timeData.length;
     const offset = Math.floor(len * 0.25); // 90° phase offset → circles
-    const radius = Math.max(Math.min(w, h) * 0.45 * amp, 50);
+    const radius = Math.max(Math.min(w, h) * 0.2 * amp, 25);
 
     // Slow rotation of the whole figure
     const rot = now * 0.3;
@@ -1046,6 +1094,59 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     lctx.fill();
 
     lctx.shadowBlur = 0;
+
+    // Grid echo copies — toggled with Shift key
+    if (fxRef.current) {
+      const gridIntensity = 1;
+      const copyScale = 0.25;
+      const spacing = Math.min(w, h) * 0.28;
+
+      const drawSmoothAt = (ox, oy, sc) => {
+        lctx.beginPath();
+        const p0x = cx + ox + (pts[0].x - cx) * sc;
+        const p0y = cy + oy + (pts[0].y - cy) * sc;
+        lctx.moveTo(p0x, p0y);
+        for (let i = 0; i < pts.length - 1; i++) {
+          const px = cx + ox + (pts[i].x - cx) * sc;
+          const py = cy + oy + (pts[i].y - cy) * sc;
+          const nx = cx + ox + (pts[i + 1].x - cx) * sc;
+          const ny = cy + oy + (pts[i + 1].y - cy) * sc;
+          lctx.quadraticCurveTo(px, py, (px + nx) / 2, (py + ny) / 2);
+        }
+        const lx = cx + ox + (pts[pts.length - 1].x - cx) * sc;
+        const ly = cy + oy + (pts[pts.length - 1].y - cy) * sc;
+        lctx.quadraticCurveTo(lx, ly, p0x, p0y);
+      };
+
+      // No shadowBlur on copies — too expensive per-frame
+      lctx.shadowColor = 'transparent';
+      lctx.shadowBlur = 0;
+
+      for (let gx = -2; gx <= 2; gx++) {
+        for (let gy = -2; gy <= 2; gy++) {
+          if (gx === 0 && gy === 0) continue;
+          const dist = Math.sqrt(gx * gx + gy * gy);
+          const alpha = gridIntensity * Math.max(0, 1 - dist / 3) * 0.5;
+          if (alpha < 0.01) continue;
+
+          const ox = gx * spacing;
+          const oy = gy * spacing;
+
+          // Glow stroke
+          drawSmoothAt(ox, oy, copyScale);
+          lctx.strokeStyle = `hsla(${laserHue}, 80%, 65%, ${alpha * brightness})`;
+          lctx.lineWidth = (3 + amp * 3) * copyScale;
+          lctx.stroke();
+
+          // Bright core
+          drawSmoothAt(ox, oy, copyScale);
+          lctx.strokeStyle = `hsla(${laserHue + 10}, 40%, 92%, ${alpha * brightness * 0.7})`;
+          lctx.lineWidth = (0.8 + amp * 0.5) * copyScale;
+          lctx.stroke();
+        }
+      }
+    }
+
     lctx.restore();
 
     // When silent, draw a still dot at center

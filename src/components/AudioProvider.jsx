@@ -37,15 +37,16 @@ function AudioProvider({ children }) {
     if (currentKey !== src) {
       el.src = src;
     }
-    // Resume Web Audio context if it was suspended (e.g. after using visualizer)
-    if (webAudioCtxRef.current && webAudioCtxRef.current.state === 'suspended') {
-      webAudioCtxRef.current.resume();
-    }
-    el.play().then(() => {
-      if (playAttemptRef.current !== attemptId) return;
-      setIsPlaying(true); isPlayingRef.current = true; setPlayingSrc(src); notify();
-    }).catch((err) => {
-      console.warn("[iMade] audio play failed:", err?.message || err);
+    // Resume Web Audio context before playing — must complete first or audio is silent
+    const ctxReady = (webAudioCtxRef.current && webAudioCtxRef.current.state === 'suspended')
+      ? webAudioCtxRef.current.resume() : Promise.resolve();
+    ctxReady.catch(() => {}).then(() => {
+      el.play().then(() => {
+        if (playAttemptRef.current !== attemptId) return;
+        setIsPlaying(true); isPlayingRef.current = true; setPlayingSrc(src); notify();
+      }).catch((err) => {
+        console.warn("[iMade] audio play failed:", err?.message || err);
+      });
     });
   }, [notify, getSrcKey]);
 

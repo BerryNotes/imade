@@ -28,7 +28,7 @@ function SongRow({ song, onDelete, onEdit, onNotes, rank, showElo, showWinLoss: 
         {rank != null && <span style={{fontSize:compact?11:13,color:rank<=3?"#f59e0b":"#6b6b80",fontWeight:700,minWidth:compact?22:28,textAlign:"right"}}>{rank}</span>}
         <span style={{flex:1,color:"#e2e8f0",fontSize:compact?12:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{song.title}</span>
         {listenTime && fmtTime(listenTime) && <span style={{color:"#22c55e80",fontSize:9,flexShrink:0}}>♪{fmtTime(listenTime)}</span>}
-        {song.notes && <svg title="Has notes" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#818cf8" strokeWidth="1.5" strokeLinecap="round" style={{flexShrink:0,opacity:0.5}}><path d="M3 2h7l3 3v9H3z"/><path d="M6 8h4M6 11h2"/></svg>}
+        {song.notes && onNotes && <svg onClick={e=>{e.stopPropagation();onNotes(song)}} title="Has notes" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#818cf8" strokeWidth="1.5" strokeLinecap="round" style={{flexShrink:0,opacity:0.5,cursor:"pointer",transition:"opacity 0.15s"}} onMouseEnter={e=>e.currentTarget.style.opacity="1"} onMouseLeave={e=>e.currentTarget.style.opacity="0.5"}><path d="M3 2h7l3 3v9H3z"/><path d="M6 8h4M6 11h2"/></svg>}
         <GenreTag genre={song.genre} compact={compact} />
         {!compact && <span style={{color:"#5a5a70",fontSize:11,flexShrink:0}}>{song.date}</span>}
         {showElo && song.elo != null && <span style={{color:"#818cf8",fontSize:11,fontWeight:600,flexShrink:0}}>{song.elo}</span>}
