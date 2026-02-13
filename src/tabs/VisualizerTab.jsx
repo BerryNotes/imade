@@ -122,6 +122,7 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
   const spectroWriteRef = useRef(0);     // write column position
   const lastFreqDataRef = useRef(null);  // cached freq data for freeze frame
   const lastTimeDataRef = useRef(null);  // cached time data for freeze frame
+  const waveHistoryRef = useRef([]);     // ring buffer of past waveform snapshots for 3D wave
   const currentTimeRef = useRef(0);
   const durationRef = useRef(0);
   useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
@@ -176,6 +177,7 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
         waveWriteRef.current = 0;
         spectroCanvasRef.current = null;
         spectroWriteRef.current = 0;
+        waveHistoryRef.current = [];
         prevSongRef.current = playingSrcRef.current;
       }
 
@@ -519,39 +521,107 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     ctx.lineCap = 'butt';
   };
 
-  // Single wave — real-time time-domain oscilloscope
+  // Wave — default: oscilloscope; FX: 3D plane scrolling through time
   const drawWaveSingle = (ctx, w, h, timeData) => {
-    const mid = h / 2;
-    const len = timeData.length;
+    const cx = w / 2;
+    const cy = h / 2;
+    const t = vizTimeRef.current;
+    const fx = fxRef.current;
 
-    ctx.beginPath();
-    for (let i = 0; i < len; i++) {
-      const x = (i / (len - 1)) * w;
-      const val = (timeData[i] - 128) / 128;
-      // Taper amplitude toward edges — full strength in center, zero at edges
-      const t = i / (len - 1); // 0 to 1
-      const taper = Math.sin(t * Math.PI); // 0 → 1 → 0
-      const y = mid + val * mid * 0.8 * taper;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+    if (fx) {
+      // FX: 3D plane where Z axis scrolls through time (waveform history)
+      const cols = 64;
+      const rows = 12;
+      const historySize = 48; // keep many snapshots, sample 12 rows from them
+      const planeW = Math.min(w, h) * 0.75;
+      const planeD = planeW * 1.6;
+
+      const history = waveHistoryRef.current;
+      if (isPlayingRef.current) {
+        const snapshot = [];
+        for (let c = 0; c <= cols; c++) {
+          const idx = Math.floor((c / cols) * (timeData.length - 1));
+          snapshot.push((timeData[idx] - 128) / 128);
+        }
+        history.unshift(snapshot);
+        if (history.length > historySize) history.length = historySize;
+      }
+
+      const rotX = 0.45 + Math.sin(t * 0.04) * 0.1;
+      const rotY = t * 0.1;
+      const cosRX = Math.cos(rotX), sinRX = Math.sin(rotX);
+      const cosRY = Math.cos(rotY), sinRY = Math.sin(rotY);
+
+      const project = (x3, y3, z3) => {
+        const x1 = x3 * cosRY + z3 * sinRY;
+        const z1 = -x3 * sinRY + z3 * cosRY;
+        const y1 = y3 * cosRX - z1 * sinRX;
+        const z2 = y3 * sinRX + z1 * cosRX;
+        const perspective = 500;
+        const denom = Math.max(perspective + z2, 50); // clamp to prevent behind-camera glitch
+        const scale = perspective / denom;
+        return { x: cx + x1 * scale, y: cy + y1 * scale, z: z2 };
+      };
+
+      ctx.lineWidth = 1.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      for (let r = 0; r <= rows; r++) {
+        const rz = (r / rows - 0.5) * planeD;
+        // Sample evenly from the full history buffer
+        const histIdx = Math.floor((rows - r) / rows * (historySize - 1));
+        const waveVals = histIdx < history.length ? history[histIdx] : (history[history.length - 1] || []);
+        ctx.beginPath();
+        for (let c = 0; c <= cols; c++) {
+          const rx = (c / cols - 0.5) * planeW;
+          const raw = waveVals[c] || 0;
+          const clamped = Math.max(-1, Math.min(1, raw));
+          const waveH = clamped * planeW * 0.12;
+          const p = project(rx, -waveH, rz);
+          if (c === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+        }
+        const freshness = r / rows;
+        const alpha = 0.15 + freshness * 0.65;
+        ctx.strokeStyle = `rgba(129,140,248,${alpha})`;
+        ctx.stroke();
+      }
+
+    } else {
+      // Default: classic oscilloscope waveform
+      const margin = w * 0.08;
+      const waveW = w - margin * 2;
+      const amplitude = h * 0.35;
+
+      // Glow layer
+      ctx.beginPath();
+      for (let i = 0; i < timeData.length; i++) {
+        const x = margin + (i / (timeData.length - 1)) * waveW;
+        const val = (timeData[i] - 128) / 128;
+        const y = cy + val * amplitude;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = 'rgba(129,140,248,0.15)';
+      ctx.lineWidth = 5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.shadowColor = 'rgba(129,140,248,0.3)';
+      ctx.shadowBlur = 12;
+      ctx.stroke();
+
+      // Bright core
+      ctx.beginPath();
+      for (let i = 0; i < timeData.length; i++) {
+        const x = margin + (i / (timeData.length - 1)) * waveW;
+        const val = (timeData[i] - 128) / 128;
+        const y = cy + val * amplitude;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = 'rgba(129,140,248,0.6)';
+      ctx.lineWidth = 2;
+      ctx.shadowBlur = 0;
+      ctx.stroke();
     }
-
-    ctx.strokeStyle = '#818cf8';
-    ctx.lineWidth = 2.5;
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    ctx.shadowColor = 'rgba(129,140,248,0.4)';
-    ctx.shadowBlur = 10;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    // Subtle center line
-    ctx.beginPath();
-    ctx.moveTo(0, mid);
-    ctx.lineTo(w, mid);
-    ctx.strokeStyle = 'rgba(148,163,184,0.1)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
   };
 
   // EQ — frequency domain as a smooth curve (amplitude vs frequency)
@@ -586,20 +656,36 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
       const y = Math.round((1 - i / binCount) * h);
       const barH = Math.max(Math.ceil(h / binCount), 1);
 
-      // Color: dark blue → cyan → yellow → white based on intensity
+      // Color palette based on FX toggle
       let r, g, b;
-      if (val < 0.25) {
+      if (fxRef.current) {
+        // FX: ocean palette — deep blue → cyan → yellow → white
+        if (val < 0.25) {
+          const t = val / 0.25;
+          r = 0; g = Math.round(t * 40); b = Math.round(30 + t * 120);
+        } else if (val < 0.5) {
+          const t = (val - 0.25) / 0.25;
+          r = 0; g = Math.round(40 + t * 180); b = Math.round(150 + t * 60);
+        } else if (val < 0.75) {
+          const t = (val - 0.5) / 0.25;
+          r = Math.round(t * 255); g = Math.round(220 + t * 35); b = Math.round(210 - t * 160);
+        } else {
+          const t = (val - 0.75) / 0.25;
+          r = 255; g = 255; b = Math.round(50 + t * 205);
+        }
+      } else if (val < 0.25) {
+        // Default: purple palette — black → deep purple → violet → magenta → lavender
         const t = val / 0.25;
-        r = 0; g = Math.round(t * 40); b = Math.round(30 + t * 120);
+        r = Math.round(t * 45); g = 0; b = Math.round(t * 80);
       } else if (val < 0.5) {
         const t = (val - 0.25) / 0.25;
-        r = 0; g = Math.round(40 + t * 180); b = Math.round(150 + t * 60);
+        r = Math.round(45 + t * 75); g = 0; b = Math.round(80 + t * 100);
       } else if (val < 0.75) {
         const t = (val - 0.5) / 0.25;
-        r = Math.round(t * 255); g = Math.round(220 + t * 35); b = Math.round(210 - t * 160);
+        r = Math.round(120 + t * 100); g = Math.round(t * 40); b = Math.round(180 + t * 50);
       } else {
         const t = (val - 0.75) / 0.25;
-        r = 255; g = 255; b = Math.round(50 + t * 205);
+        r = Math.round(220 + t * 35); g = Math.round(40 + t * 140); b = Math.round(230 + t * 25);
       }
 
       sctx.fillStyle = `rgb(${r},${g},${b})`;
@@ -658,71 +744,84 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     const avgFreqBin = totalWeight > 0 ? freqWeightedSum / totalWeight / data.length : 0.3;
     const activity = 0.3 + avgFreqBin * 2.5;
 
-    // Spawn from a central strip — one round per song
+    // Spawn from random positions across the canvas
     const PARTICLE_CAP = 800;
     if (particleSpawnedRef.current < PARTICLE_CAP) {
       const spawnCount = Math.min(
         Math.floor(Math.pow(volume, 0.4) * 55),
         PARTICLE_CAP - particleSpawnedRef.current
       );
-      const stripCenter = w * 0.5;
-      const stripSpread = w * 0.18;
       for (let i = 0; i < spawnCount && particles.length < MAX_PARTICLES; i++) {
         const fg = Math.random() > 0.45;
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 0.8 + Math.random() * 1.5;
         particles.push({
-          x: stripCenter + (Math.random() - 0.5) * stripSpread,
-          y: h + Math.random() * 8,
-          baseVy: -(0.15 + Math.random() * 0.35),
-          size: fg ? 2.5 + Math.random() * 4.5 : 0.6 + Math.random() * 2,
+          x: Math.random() * w,
+          y: Math.random() * h,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          size: fg ? 1.2 + Math.random() * 2.5 : 0.3 + Math.random() * 1,
           opacity: fg ? 0.35 + Math.random() * 0.35 : 0.12 + Math.random() * 0.18,
           wobbleOffset: Math.random() * Math.PI * 2,
           birthTime: now,
           sizePhase: Math.random() * Math.PI * 2,
           fg,
-          drift: (Math.random() - 0.5) * 0.8,
         });
         particleSpawnedRef.current++;
       }
     }
 
-    // Ceiling — normal particles fade out around 40% from top
-    const ceiling = h * 0.35;
-
-    // Update and remove
+    // Update — particles move freely, wrap around edges
     for (let i = particles.length - 1; i >= 0; i--) {
       const p = particles[i];
       if (p.exiting) {
-        // Exiting particles accelerate upward and out
-        p.y -= 2.5;
-        p.opacity *= 0.985;
-        if (p.y < -20 || p.opacity < 0.01) { particles.splice(i, 1); continue; }
+        p.x += (p.vx || 0) * 3;
+        p.y += (p.vy || 0) * 3;
+        p.opacity *= 0.98;
+        if (p.opacity < 0.01) { particles.splice(i, 1); continue; }
       } else {
-        p.x += p.drift * activity * 0.4 + Math.sin(p.y * 0.006 + p.wobbleOffset) * 0.3;
-        p.y += p.baseVy * activity;
-        // Remove when past ceiling
-        if (p.y < ceiling) { particles.splice(i, 1); continue; }
+        p.x += p.vx + Math.sin(now * 2 + p.wobbleOffset) * 0.3;
+        p.y += p.vy + Math.cos(now * 2 + p.wobbleOffset) * 0.3;
+        // Wrap around edges
+        if (p.x < -10) p.x = w + 10;
+        else if (p.x > w + 10) p.x = -10;
+        if (p.y < -10) p.y = h + 10;
+        else if (p.y > h + 10) p.y = -10;
+      }
+    }
+
+    // FX: constellation — draw connecting lines between nearby foreground particles
+    if (fxRef.current) {
+      const connectDist = 110;
+      const connectDistSq = connectDist * connectDist;
+      const fgParticles = particles.filter(p => p.fg && !p.exiting);
+      ctx.lineWidth = 1.6;
+      for (let i = 0; i < fgParticles.length; i++) {
+        for (let j = i + 1; j < fgParticles.length; j++) {
+          const dx = fgParticles[i].x - fgParticles[j].x;
+          const dy = fgParticles[i].y - fgParticles[j].y;
+          const distSq = dx * dx + dy * dy;
+          if (distSq < connectDistSq) {
+            const alpha = (1 - Math.sqrt(distSq) / connectDist) * 0.5;
+            ctx.strokeStyle = `rgba(129,140,248,${alpha})`;
+            ctx.beginPath();
+            ctx.moveTo(fgParticles[i].x, fgParticles[i].y);
+            ctx.lineTo(fgParticles[j].x, fgParticles[j].y);
+            ctx.stroke();
+          }
+        }
       }
     }
 
     // Draw background layer first, then foreground
+    const volScale = 1 + volume * 5; // dots grow noticeably with louder audio
     for (let pass = 0; pass < 2; pass++) {
       const isFgPass = pass === 1;
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
         if (p.fg !== isFgPass) continue;
-        let alpha;
-        if (p.exiting) {
-          alpha = p.opacity;
-        } else {
-          // Fade as they approach the ceiling
-          const fadeStart = h * 0.55;
-          const fadeRange = fadeStart - ceiling;
-          const fadeFactor = p.y < fadeStart ? Math.max(0, (p.y - ceiling) / fadeRange) : 1;
-          alpha = p.opacity * fadeFactor;
-        }
-        const age = now - p.birthTime;
-        const sizeMultiplier = 0.7 + 0.3 * Math.sin(age * 2.5 + p.sizePhase);
-        const drawSize = p.size * sizeMultiplier;
+        const alpha = p.opacity;
+        const drawSize = p.size * volScale;
         ctx.beginPath();
         ctx.arc(p.x, p.y, drawSize, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(129,140,248,${alpha})`;
@@ -750,24 +849,29 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     const cx = w / 2;
     const cy = h / 2;
     const ringR = Math.min(w, h) * 0.25;
-    const ringCapacity = 140;
+    const perRingCapacity = 140;
+    const ringCount = fxRef.current ? 3 : 1; // default: 1 ring, FX: 3 rings
+    const totalCapacity = perRingCapacity * ringCount;
 
-    // Gradually spawn from all edges until ring is full
-    if (particles.length < ringCapacity) {
-      const spawnRate = Math.max(1, Math.floor(Math.pow(volume, 0.3) * 6));
-      for (let i = 0; i < spawnRate && particles.length < ringCapacity; i++) {
+    // Gradually spawn from all edges until rings are full
+    if (particles.length < totalCapacity) {
+      const spawnRate = Math.max(1, Math.floor(Math.pow(volume, 0.3) * 8));
+      for (let i = 0; i < spawnRate && particles.length < totalCapacity; i++) {
         const edge = Math.floor(Math.random() * 4);
         let sx, sy;
         if (edge === 0) { sx = Math.random() * w; sy = -10; }
         else if (edge === 1) { sx = Math.random() * w; sy = h + 10; }
         else if (edge === 2) { sx = -10; sy = Math.random() * h; }
         else { sx = w + 10; sy = Math.random() * h; }
-        const angle = (ringIndexRef.current / ringCapacity) * Math.PI * 2 + (Math.random() - 0.5) * 0.08;
+        const ring = ringIndexRef.current % ringCount; // 0, or 0/1/2 in FX
+        const ringIdx = Math.floor(ringIndexRef.current / ringCount);
+        const angle = (ringIdx / perRingCapacity) * Math.PI * 2 + (Math.random() - 0.5) * 0.08;
         const fg = Math.random() > 0.45;
         particles.push({
           x: sx, y: sy,
           vx: 0, vy: 0,
           ringAngle: angle,
+          ring, // 0=XY, 1=XZ, 2=YZ
           size: fg ? 2 + Math.random() * 3.5 : 0.8 + Math.random() * 1.8,
           opacity: fg ? 0.45 + Math.random() * 0.3 : 0.18 + Math.random() * 0.2,
           sizePhase: Math.random() * Math.PI * 2,
@@ -788,10 +892,12 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     const cosZ = Math.cos(rotZ), sinZ = Math.sin(rotZ);
 
     // Project a 3D ring point to 2D with perspective
-    const project3D = (angle, r) => {
-      let x3 = Math.cos(angle) * r;
-      let y3 = Math.sin(angle) * r;
-      let z3 = 0;
+    // ringType: 0=XY plane, 1=XZ plane, 2=YZ plane
+    const project3D = (angle, r, ringType = 0) => {
+      let x3, y3, z3;
+      if (ringType === 1) { x3 = Math.cos(angle) * r; y3 = 0; z3 = Math.sin(angle) * r; }
+      else if (ringType === 2) { x3 = 0; y3 = Math.cos(angle) * r; z3 = Math.sin(angle) * r; }
+      else { x3 = Math.cos(angle) * r; y3 = Math.sin(angle) * r; z3 = 0; }
       // Rotate X
       const y1 = y3 * cosX - z3 * sinX;
       const z1 = y3 * sinX + z3 * cosX;
@@ -813,12 +919,14 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
       const p = particles[i];
       // Target position on ring with vibration from sound wave
       const pulseR = ringR * (1 + volume * 0.12);
-      const orbitSpeed = p.fg ? 0.025 : -0.018;
+      const fxActive = fxRef.current;
+      const baseSpeed = p.fg ? 0.06 : -0.04;
+      const orbitSpeed = fxActive ? baseSpeed * 3 : baseSpeed;
       p.ringAngle += orbitSpeed * dt;
       // Vibrate each particle radially based on waveform intensity
       const vibrate = waveIntensity * 8 * Math.sin(now * 25 + p.ringAngle * 5);
       const targetR = pulseR + vibrate;
-      const proj = project3D(p.ringAngle, targetR);
+      const proj = project3D(p.ringAngle, targetR, p.ring || 0);
       let tx = proj.x;
       let ty = proj.y;
 
@@ -853,9 +961,17 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
       }
     }
 
+    // In default mode, remove extra ring particles that were spawned in FX mode
+    const orbitFx = fxRef.current;
+    if (!orbitFx) {
+      for (let i = particles.length - 1; i >= 0; i--) {
+        if (particles[i].ring > 0) particles.splice(i, 1);
+      }
+    }
+
     // Sort by depth (z stored during update) — draw far particles first
     const sorted = particles.map((p, i) => {
-      const proj = project3D(p.ringAngle, ringR);
+      const proj = project3D(p.ringAngle, ringR, p.ring || 0);
       return { idx: i, z: proj.z };
     });
     sorted.sort((a, b) => a.z - b.z);
@@ -865,7 +981,7 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     ctx.shadowBlur = 6;
     for (const { idx } of sorted) {
       const p = particles[idx];
-      const proj = project3D(p.ringAngle, ringR);
+      const proj = project3D(p.ringAngle, ringR, p.ring || 0);
       const depthScale = proj.scale;
       const depthAlpha = 0.4 + 0.6 * ((proj.z + ringR) / (2 * ringR)); // dimmer when further
       const age = now - p.birthTime;
@@ -873,7 +989,13 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
       const drawSize = p.size * sizeMultiplier * (1 + volume * 0.15) * depthScale;
       ctx.beginPath();
       ctx.arc(p.x, p.y, Math.max(0.5, drawSize), 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(129,140,248,${(p.opacity * Math.max(0.2, depthAlpha)).toFixed(2)})`;
+      if (orbitFx) {
+        // FX: rainbow trail — hue based on ring angle
+        const hue = (p.ringAngle * 180 / Math.PI + now * 30) % 360;
+        ctx.fillStyle = `hsla(${hue}, 70%, 65%, ${(p.opacity * Math.max(0.2, depthAlpha)).toFixed(2)})`;
+      } else {
+        ctx.fillStyle = `rgba(129,140,248,${(p.opacity * Math.max(0.2, depthAlpha)).toFixed(2)})`;
+      }
       ctx.fill();
     }
     ctx.shadowBlur = 0;
@@ -967,22 +1089,78 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
       p.y += p.vy;
     }
 
-    // Draw dots — size and brightness scale with volume
-    ctx.shadowColor = `rgba(129,140,248,${(0.1 + boostedVol * 0.25).toFixed(2)})`;
-    ctx.shadowBlur = 4 + boostedVol * 6;
-    for (let i = 0; i < grid.length; i++) {
-      const p = grid[i];
-      // Displacement from home = brightness boost
-      const dx = p.x - p.homeX, dy = p.y - p.homeY;
-      const displacement = Math.sqrt(dx * dx + dy * dy) / maxDisplace;
-      const size = 1.5 + boostedVol * 3.5 + displacement * 1.5;
-      const alpha = 0.25 + boostedVol * 0.45 + displacement * 0.15;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(129,140,248,${Math.min(1, alpha).toFixed(2)})`;
-      ctx.fill();
+    const gridFx = fxRef.current;
+
+    // FX: full mesh with rainbow shockwave coloring + diagonals
+    if (gridFx) {
+      // Shockwave rings expand from center with bass
+      const centerX = w / 2, centerY = h / 2;
+      const maxDist = Math.sqrt(centerX * centerX + centerY * centerY);
+      const pulseSpeed = 300; // px per second
+      const pulsePhase = (now * pulseSpeed) % maxDist;
+
+      // Draw mesh connections — horizontal, vertical, and diagonal
+      ctx.lineWidth = 0.8;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const idx = r * cols + c;
+          const p = grid[idx];
+          const distFromCenter = Math.sqrt((p.x - centerX) ** 2 + (p.y - centerY) ** 2);
+          const angle = Math.atan2(p.y - centerY, p.x - centerX);
+          const hue = ((angle / Math.PI * 180 + 180) + now * 30) % 360;
+          // Shockwave brightness — bright ring expanding from center
+          const pulseDist = Math.abs(distFromCenter - pulsePhase);
+          const pulseGlow = Math.max(0, 1 - pulseDist / 60) * bass * 2;
+          const lineAlpha = (0.06 + boostedVol * 0.18 + pulseGlow * 0.3).toFixed(2);
+
+          const drawLine = (other) => {
+            ctx.strokeStyle = `hsla(${hue}, 70%, 60%, ${lineAlpha})`;
+            ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(other.x, other.y); ctx.stroke();
+          };
+          if (c < cols - 1) drawLine(grid[idx + 1]);
+          if (r < rows - 1) drawLine(grid[idx + cols]);
+          if (c < cols - 1 && r < rows - 1) drawLine(grid[idx + cols + 1]);
+          if (c > 0 && r < rows - 1) drawLine(grid[idx + cols - 1]);
+        }
+      }
+
+      // Draw dots with rainbow coloring and shockwave glow
+      for (let i = 0; i < grid.length; i++) {
+        const p = grid[i];
+        const dx = p.x - p.homeX, dy = p.y - p.homeY;
+        const displacement = Math.sqrt(dx * dx + dy * dy) / maxDisplace;
+        const distFromCenter = Math.sqrt((p.x - centerX) ** 2 + (p.y - centerY) ** 2);
+        const angle = Math.atan2(p.y - centerY, p.x - centerX);
+        const hue = ((angle / Math.PI * 180 + 180) + now * 30) % 360;
+        const pulseDist = Math.abs(distFromCenter - pulsePhase);
+        const pulseGlow = Math.max(0, 1 - pulseDist / 60) * bass * 2;
+        const size = 2 + boostedVol * 4.5 + displacement * 2 + pulseGlow * 3;
+        const alpha = Math.min(1, 0.3 + boostedVol * 0.5 + displacement * 0.2 + pulseGlow * 0.4);
+        ctx.shadowColor = `hsla(${hue}, 80%, 60%, ${(0.2 + pulseGlow * 0.5).toFixed(2)})`;
+        ctx.shadowBlur = 6 + pulseGlow * 12;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
+        ctx.fillStyle = `hsla(${hue}, 70%, ${55 + pulseGlow * 20}%, ${alpha.toFixed(2)})`;
+        ctx.fill();
+      }
+      ctx.shadowBlur = 0;
+    } else {
+      // Default: dots only — no connecting lines
+      ctx.shadowColor = `rgba(129,140,248,${(0.1 + boostedVol * 0.25).toFixed(2)})`;
+      ctx.shadowBlur = 4 + boostedVol * 6;
+      for (let i = 0; i < grid.length; i++) {
+        const p = grid[i];
+        const dx = p.x - p.homeX, dy = p.y - p.homeY;
+        const displacement = Math.sqrt(dx * dx + dy * dy) / maxDisplace;
+        const size = 1.5 + boostedVol * 3.5 + displacement * 1.5;
+        const alpha = 0.25 + boostedVol * 0.45 + displacement * 0.15;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(129,140,248,${Math.min(1, alpha).toFixed(2)})`;
+        ctx.fill();
+      }
+      ctx.shadowBlur = 0;
     }
-    ctx.shadowBlur = 0;
   };
 
   const drawLaser = (ctx, w, h, timeData, freqData, now) => {
@@ -1098,8 +1276,8 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     // Grid echo copies — toggled with Shift key
     if (fxRef.current) {
       const gridIntensity = 1;
-      const copyScale = 0.25;
-      const spacing = Math.min(w, h) * 0.28;
+      const copyScale = 0.4;
+      const spacing = Math.min(w, h) * (0.28 + amp * 0.1);
 
       const drawSmoothAt = (ox, oy, sc) => {
         lctx.beginPath();
@@ -1175,8 +1353,10 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     const cy = h / 2;
     const baseR = Math.min(w, h) * 0.24;
     const t = sphereTimeRef.current;
-    const rotY = t * 0.12;  // slow Y-axis rotation
-    const rotZ = t * 0.07;  // slow Z-axis rotation
+    const sphereFx = fxRef.current;
+    const rotX = sphereFx ? t * 0.09 : 0;  // FX: add X-axis rotation
+    const rotY = t * (sphereFx ? 0.2 : 0.12);  // FX: faster Y spin
+    const rotZ = t * 0.07;
 
     // Average amplitude for glow intensity
     let sum = 0;
@@ -1194,15 +1374,20 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     ctx.arc(cx, cy, glowR, 0, Math.PI * 2);
     ctx.fill();
 
-    // 3D rotation helper: rotate around Y then Z
+    // 3D rotation helper: rotate around X (FX only) then Y then Z
+    const cosRX = Math.cos(rotX), sinRX = Math.sin(rotX);
+    const cosRY = Math.cos(rotY), sinRY = Math.sin(rotY);
+    const cosRZ = Math.cos(rotZ), sinRZ = Math.sin(rotZ);
     const project = (x3, y3, z3) => {
+      // X-axis rotation (FX adds tumble)
+      let ya = y3 * cosRX - z3 * sinRX;
+      let za = y3 * sinRX + z3 * cosRX;
       // Y-axis rotation
-      let x1 = x3 * Math.cos(rotY) + z3 * Math.sin(rotY);
-      let z1 = -x3 * Math.sin(rotY) + z3 * Math.cos(rotY);
-      let y1 = y3;
+      let x1 = x3 * cosRY + za * sinRY;
+      let z1 = -x3 * sinRY + za * cosRY;
       // Z-axis rotation
-      let x2 = x1 * Math.cos(rotZ) - y1 * Math.sin(rotZ);
-      let y2 = x1 * Math.sin(rotZ) + y1 * Math.cos(rotZ);
+      let x2 = x1 * cosRZ - ya * sinRZ;
+      let y2 = x1 * sinRZ + ya * cosRZ;
       let z2 = z1;
       const scale = 1 / (1 + z2 / (baseR * 4));
       return { sx: cx + x2 * scale, sy: cy + y2 * scale, z: z2 };
@@ -1227,69 +1412,126 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     const baseDistort = 0.3 + avg * 0.8;
     const rippleStrength = avg * 0.15; // ripples increase with volume
 
-    // Longitude lines (vertical great circles)
-    const lonLines = 16;
-    const lonPts = 48;
-    for (let l = 0; l < lonLines; l++) {
-      const phi = (l / lonLines) * Math.PI;
-      ctx.beginPath();
-      for (let i = 0; i <= lonPts; i++) {
-        const theta = (i / lonPts) * Math.PI * 2;
-        const vertPos = Math.abs(Math.cos(theta));
-        const bandVal = bassAvg * (1 - vertPos) + highAvg * vertPos + midAvg * 0.5;
-        // Mirror frequency index so both halves match — keeps sphere symmetric
-        const halfPts = lonPts / 2;
-        const mirrorI = i <= halfPts ? i : lonPts - i;
-        const freqIdx = Math.floor((mirrorI / halfPts) * maxBin);
-        const pointVal = data[Math.min(freqIdx, maxBin - 1)] / 255;
-        const combined = bandVal * 0.6 + pointVal * 0.4;
-        // Surface ripple — waves travel across the sphere
-        const ripple = rippleStrength * Math.sin(theta * 8 + phi * 6 + t * 4) * Math.sin(phi * 4 - t * 3);
-        const r = baseR * (1 + combined * baseDistort * 0.5 + ripple);
-        const x3 = r * Math.sin(theta) * Math.cos(phi);
-        const y3 = r * Math.cos(theta);
-        const z3 = r * Math.sin(theta) * Math.sin(phi);
-        const { sx, sy } = project(x3, y3, z3);
-        if (i === 0) ctx.moveTo(sx, sy);
-        else ctx.lineTo(sx, sy);
+    if (sphereFx) {
+      // FX: Cube wireframe with frequency-reactive distortion
+      const s = baseR * (1 + avg * 0.15); // half-size, pulses with volume
+      const verts = [
+        [-s,-s,-s],[s,-s,-s],[s,s,-s],[-s,s,-s], // back face
+        [-s,-s,s],[s,-s,s],[s,s,s],[-s,s,s],      // front face
+      ];
+      const edges = [
+        [0,1],[1,2],[2,3],[3,0], // back
+        [4,5],[5,6],[6,7],[7,4], // front
+        [0,4],[1,5],[2,6],[3,7], // connecting
+      ];
+      const segs = 20; // subdivisions per edge for frequency displacement
+      for (let e = 0; e < edges.length; e++) {
+        const [a, b] = edges[e];
+        const va = verts[a], vb = verts[b];
+        ctx.beginPath();
+        for (let i = 0; i <= segs; i++) {
+          const frac = i / segs;
+          let ex = va[0] + (vb[0] - va[0]) * frac;
+          let ey = va[1] + (vb[1] - va[1]) * frac;
+          let ez = va[2] + (vb[2] - va[2]) * frac;
+          // Displace outward from center based on frequency data
+          const len = Math.sqrt(ex * ex + ey * ey + ez * ez) || 1;
+          const freqIdx = Math.floor((e * segs + i) / (edges.length * segs + 1) * maxBin);
+          const pointVal = data[Math.min(freqIdx, maxBin - 1)] / 255;
+          const ripple = rippleStrength * Math.sin(frac * 12 + t * 4 + e * 2);
+          const disp = 1 + pointVal * baseDistort * 0.3 + ripple;
+          ex *= disp; ey *= disp; ez *= disp;
+          const { sx, sy } = project(ex, ey, ez);
+          if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+        }
+        const hue = (e / edges.length * 360 + t * 25) % 360;
+        const edgeAlpha = 0.25 + avg * 0.45;
+        ctx.strokeStyle = `hsla(${hue}, 70%, 60%, ${edgeAlpha})`;
+        ctx.stroke();
       }
-      const depthPt = project(Math.cos(phi) * baseR, 0, Math.sin(phi) * baseR);
-      const depth = depthPt.z / baseR;
-      const alpha = 0.15 + depth * 0.2 + avg * 0.3;
-      ctx.strokeStyle = `rgba(129,140,248,${Math.max(0.05, alpha)})`;
-      ctx.stroke();
-    }
+      // Draw cube face diagonals for extra detail
+      const faceDiags = [[0,6],[1,7],[2,4],[3,5]];
+      for (let d = 0; d < faceDiags.length; d++) {
+        const [a, b] = faceDiags[d];
+        const va = verts[a], vb = verts[b];
+        ctx.beginPath();
+        for (let i = 0; i <= segs; i++) {
+          const frac = i / segs;
+          let ex = va[0] + (vb[0] - va[0]) * frac;
+          let ey = va[1] + (vb[1] - va[1]) * frac;
+          let ez = va[2] + (vb[2] - va[2]) * frac;
+          const freqIdx = Math.floor(frac * maxBin);
+          const pointVal = data[Math.min(freqIdx, maxBin - 1)] / 255;
+          const ripple = rippleStrength * Math.sin(frac * 10 + t * 3 + d);
+          const disp = 1 + pointVal * baseDistort * 0.2 + ripple;
+          ex *= disp; ey *= disp; ez *= disp;
+          const { sx, sy } = project(ex, ey, ez);
+          if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+        }
+        const hue = (d / faceDiags.length * 360 + t * 20 + 180) % 360;
+        ctx.strokeStyle = `hsla(${hue}, 60%, 55%, ${0.12 + avg * 0.2})`;
+        ctx.stroke();
+      }
+    } else {
+      // Default: Sphere wireframe
+      // Longitude lines (vertical great circles)
+      const lonLines = 16;
+      const lonPts = 48;
+      for (let l = 0; l < lonLines; l++) {
+        const phi = (l / lonLines) * Math.PI;
+        ctx.beginPath();
+        for (let i = 0; i <= lonPts; i++) {
+          const theta = (i / lonPts) * Math.PI * 2;
+          const vertPos = Math.abs(Math.cos(theta));
+          const bandVal = bassAvg * (1 - vertPos) + highAvg * vertPos + midAvg * 0.5;
+          const halfPts = lonPts / 2;
+          const mirrorI = i <= halfPts ? i : lonPts - i;
+          const freqIdx = Math.floor((mirrorI / halfPts) * maxBin);
+          const pointVal = data[Math.min(freqIdx, maxBin - 1)] / 255;
+          const combined = bandVal * 0.6 + pointVal * 0.4;
+          const ripple = rippleStrength * Math.sin(theta * 8 + phi * 6 + t * 4) * Math.sin(phi * 4 - t * 3);
+          const r = baseR * (1 + combined * baseDistort * 0.5 + ripple);
+          const x3 = r * Math.sin(theta) * Math.cos(phi);
+          const y3 = r * Math.cos(theta);
+          const z3 = r * Math.sin(theta) * Math.sin(phi);
+          const { sx, sy } = project(x3, y3, z3);
+          if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+        }
+        const depthPt = project(Math.cos(phi) * baseR, 0, Math.sin(phi) * baseR);
+        const depth = depthPt.z / baseR;
+        const alpha = 0.15 + depth * 0.2 + avg * 0.3;
+        ctx.strokeStyle = `rgba(129,140,248,${Math.max(0.05, alpha)})`;
+        ctx.stroke();
+      }
 
-    // Latitude lines (horizontal circles)
-    const latLines = 10;
-    const latPts = 64;
-    for (let l = 1; l < latLines; l++) {
-      const theta = (l / latLines) * Math.PI;
-      const latR = baseR * Math.sin(theta);
-      const latY = baseR * Math.cos(theta);
-      // Latitude band: poles get highs, equator gets bass
-      const vertPos = Math.abs(Math.cos(theta));
-      const latBandVal = bassAvg * (1 - vertPos) + highAvg * vertPos + midAvg * 0.5;
-      ctx.beginPath();
-      for (let i = 0; i <= latPts; i++) {
-        const phi = (i / latPts) * Math.PI * 2;
-        // Mirror frequency index so both halves match
-        const halfPts = latPts / 2;
-        const mirrorI = i <= halfPts ? i : latPts - i;
-        const freqIdx = Math.floor((mirrorI / halfPts) * maxBin);
-        const pointVal = data[Math.min(freqIdx, maxBin - 1)] / 255;
-        const combined = latBandVal * 0.6 + pointVal * 0.4;
-        const ripple = rippleStrength * Math.sin(theta * 8 + phi * 6 + t * 4) * Math.sin(phi * 4 - t * 3);
-        const r = latR * (1 + combined * baseDistort * 0.5 + ripple);
-        const x3 = r * Math.cos(phi);
-        const z3 = r * Math.sin(phi);
-        const { sx, sy } = project(x3, latY, z3);
-        if (i === 0) ctx.moveTo(sx, sy);
-        else ctx.lineTo(sx, sy);
+      // Latitude lines (horizontal circles)
+      const latLines = 10;
+      const latPts = 64;
+      for (let l = 1; l < latLines; l++) {
+        const theta = (l / latLines) * Math.PI;
+        const latR = baseR * Math.sin(theta);
+        const latY = baseR * Math.cos(theta);
+        const vertPos = Math.abs(Math.cos(theta));
+        const latBandVal = bassAvg * (1 - vertPos) + highAvg * vertPos + midAvg * 0.5;
+        ctx.beginPath();
+        for (let i = 0; i <= latPts; i++) {
+          const phi = (i / latPts) * Math.PI * 2;
+          const halfPts = latPts / 2;
+          const mirrorI = i <= halfPts ? i : latPts - i;
+          const freqIdx = Math.floor((mirrorI / halfPts) * maxBin);
+          const pointVal = data[Math.min(freqIdx, maxBin - 1)] / 255;
+          const combined = latBandVal * 0.6 + pointVal * 0.4;
+          const ripple = rippleStrength * Math.sin(theta * 8 + phi * 6 + t * 4) * Math.sin(phi * 4 - t * 3);
+          const r = latR * (1 + combined * baseDistort * 0.5 + ripple);
+          const x3 = r * Math.cos(phi);
+          const z3 = r * Math.sin(phi);
+          const { sx, sy } = project(x3, latY, z3);
+          if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+        }
+        const alpha = 0.1 + avg * 0.35;
+        ctx.strokeStyle = `rgba(167,139,250,${alpha})`;
+        ctx.stroke();
       }
-      const alpha = 0.1 + avg * 0.35;
-      ctx.strokeStyle = `rgba(167,139,250,${alpha})`;
-      ctx.stroke();
     }
   };
 

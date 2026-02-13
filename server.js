@@ -77,7 +77,9 @@ app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: "Username and password required" });
 
-  const user = db.getUserByUsername(username.trim());
+  // Accept "admin" as alias for "local" user
+  const lookupName = username.trim().toLowerCase() === "admin" ? "local" : username.trim();
+  const user = db.getUserByUsername(lookupName);
   if (!user) return res.status(401).json({ error: "Invalid credentials" });
 
   try {
@@ -93,26 +95,17 @@ app.post("/api/login", async (req, res) => {
 });
 
 app.post("/api/logout", (req, res) => {
+  // In local/shared mode, logout is a no-op — always stay as local user
+  if (IMADE_MODE === "electron" || SHARED_MODE) {
+    return res.json({ success: true });
+  }
   req.session.destroy(() => {
     res.json({ success: true });
   });
 });
 
-app.get("/api/me", (req, res) => {
-  if (!req.session || !req.session.userId) {
-    // In electron/shared mode, auto-login creates the session
-    if (IMADE_MODE === "electron" || SHARED_MODE) {
-      let user = db.getUserByUsername("admin");
-      if (!user) {
-        const hash = bcrypt.hashSync("admin", 10);
-        db.createUser("admin", hash);
-        user = db.getUserByUsername("admin");
-      }
-      req.session.userId = user.id;
-      return res.json({ user: { id: user.id, username: user.username } });
-    }
-    return res.status(401).json({ error: "Not authenticated" });
-  }
+app.get("/api/me", auth, (req, res) => {
+  // auth middleware already guarantees req.session.userId is set
   const user = db.getUserById(req.session.userId);
   if (!user) return res.status(401).json({ error: "User not found" });
   res.json({ user: { id: user.id, username: user.username } });

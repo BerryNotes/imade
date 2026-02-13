@@ -62,17 +62,15 @@ function requireAuth(req, res, next) {
   res.status(401).json({ error: "Not authenticated" });
 }
 
-// Electron auto-login: create/use the admin user, set session automatically
+// Electron/local auto-login: ALWAYS force the "local" user on every request.
+// Never trust existing session — prevents data loss from stale/expired cookies.
 function electronAutoLogin(req, res, next) {
-  if (req.session && req.session.userId) return next();
-
-  // Auto-create and login as "admin" user
-  let user = db.getUserByUsername("admin");
+  let user = db.getUserByUsername("local");
   if (!user) {
     const bcrypt = require("bcryptjs");
-    const hash = bcrypt.hashSync("admin", 10);
-    db.createUser("admin", hash);
-    user = db.getUserByUsername("admin");
+    const hash = bcrypt.hashSync("local-electron-user", 10);
+    db.createUser("local", hash);
+    user = db.getUserByUsername("local");
   }
   req.session.userId = user.id;
   next();
