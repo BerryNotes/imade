@@ -115,6 +115,39 @@ function getUserById(id) {
   return getDb().prepare("SELECT id, username, created_at FROM users WHERE id = ?").get(id);
 }
 
+// --- Admin helpers ---
+
+function getAllUsersWithStats() {
+  return getDb().prepare(`
+    SELECT u.id, u.username, u.created_at,
+      (SELECT COUNT(*) FROM songs WHERE user_id = u.id) AS song_count,
+      (SELECT COUNT(*) FROM comparisons WHERE user_id = u.id) AS comparison_count,
+      (SELECT COUNT(*) FROM playlists WHERE user_id = u.id) AS playlist_count
+    FROM users u ORDER BY u.id
+  `).all();
+}
+
+function updateUserUsername(id, newUsername) {
+  return getDb().prepare("UPDATE users SET username = ? WHERE id = ?").run(newUsername, id);
+}
+
+function updateUserPassword(id, passwordHash) {
+  return getDb().prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(passwordHash, id);
+}
+
+function deleteUser(id) {
+  const db = getDb();
+  const tx = db.transaction(() => {
+    db.prepare("DELETE FROM listen_times WHERE user_id = ?").run(id);
+    db.prepare("DELETE FROM playlists WHERE user_id = ?").run(id);
+    db.prepare("DELETE FROM comparisons WHERE user_id = ?").run(id);
+    db.prepare("DELETE FROM genres WHERE user_id = ?").run(id);
+    db.prepare("DELETE FROM songs WHERE user_id = ?").run(id);
+    db.prepare("DELETE FROM users WHERE id = ?").run(id);
+  });
+  tx();
+}
+
 // --- Song helpers ---
 
 function getSongs(userId) {
@@ -406,6 +439,7 @@ function bulkReplace(userId, data) {
 module.exports = {
   getDb,
   createUser, getUserByUsername, getUserById,
+  getAllUsersWithStats, updateUserUsername, updateUserPassword, deleteUser,
   getSongs, getSongById, insertSong, updateSong, deleteSong, batchUpdateGenre, rowToSong,
   getComparisons, insertComparison, deleteLastComparison, deleteAllComparisons,
   getGenres, addGenre, deleteGenre, renameGenre, setGenres,

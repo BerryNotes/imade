@@ -143,7 +143,7 @@ function AudioProvider({ children }) {
     const source = ctx.createMediaElementSource(el);
     sourceNodeRef.current = source;
     const analyser = ctx.createAnalyser();
-    analyser.fftSize = 512;
+    analyser.fftSize = 8192;
     analyser.smoothingTimeConstant = 0.92;
     source.connect(analyser);
     analyser.connect(ctx.destination);

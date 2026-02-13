@@ -39,6 +39,12 @@ const api = {
   logout: () => api.post("/api/logout"),
   getMe: () => api.get("/api/me"),
 
+  // Admin helpers
+  adminGetUsers: () => api.get("/api/admin/users"),
+  adminUpdateUser: (id, fields) => api.put(`/api/admin/users/${id}`, fields),
+  adminDeleteUser: (id) => api.del(`/api/admin/users/${id}`),
+  adminGetUserSongs: (id) => api.get(`/api/admin/users/${id}/songs`),
+
   // Set callback for 401 responses (redirect to login)
   setOnUnauthorized: (cb) => { onUnauthorized = cb; },
 };

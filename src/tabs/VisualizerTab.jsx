@@ -642,19 +642,24 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     }
     const sctx = sc.getContext('2d');
 
-    // Write one column of frequency data — 10Hz to 16kHz
+    // Write one column of frequency data — 10Hz to 16kHz (log scale)
     const col = spectroWriteRef.current % Math.round(w);
     const sampleRate = 44100;
-    const binHz = sampleRate / 512;
-    const minBin = Math.max(1, Math.ceil(10 / binHz));
-    const maxBin = Math.min(Math.floor(16000 / binHz), freqData.length);
-    const binCount = maxBin - minBin;
+    const fftSize = analyserRef.current ? analyserRef.current.fftSize : 8192;
+    const binHz = sampleRate / fftSize;
+    const minFreq = 20, maxFreq = 10000;
+    const logMin = Math.log(minFreq), logMax = Math.log(maxFreq);
 
-    for (let i = 0; i < binCount; i++) {
-      const val = freqData[i + minBin] / 255;
-      // Map frequency bin to y (low freq at bottom, high at top)
-      const y = Math.round((1 - i / binCount) * h);
-      const barH = Math.max(Math.ceil(h / binCount), 1);
+    // Draw each pixel row, mapping log-frequency to the correct FFT bin
+    for (let py = 0; py < h; py++) {
+      // py=0 is top (high freq), py=h-1 is bottom (low freq)
+      const t = 1 - py / h; // 0 at bottom, 1 at top
+      const freq = Math.exp(logMin + t * (logMax - logMin));
+      const bin = freq / binHz;
+      // Linearly interpolate between adjacent bins
+      const binLow = Math.floor(bin), binHigh = Math.min(binLow + 1, freqData.length - 1);
+      const frac = bin - binLow;
+      const val = ((1 - frac) * (freqData[binLow] || 0) + frac * (freqData[binHigh] || 0)) / 255;
 
       // Color palette based on FX toggle
       let r, g, b;
@@ -689,7 +694,7 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
       }
 
       sctx.fillStyle = `rgb(${r},${g},${b})`;
-      sctx.fillRect(col * dpr, y * dpr, dpr, barH * dpr);
+      sctx.fillRect(col * dpr, py * dpr, dpr, dpr);
     }
 
     spectroWriteRef.current++;
@@ -711,11 +716,11 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     ctx.fillStyle = 'rgba(148,163,184,0.5)';
     ctx.font = '11px monospace';
     ctx.textAlign = 'left';
-    const labels = [100, 500, 1000, 2000, 5000, 10000];
+    const labels = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000];
     for (const freq of labels) {
-      if (freq > 16000 || freq < 10) continue;
-      const bin = Math.round((freq - 10) / (16000 - 10) * binCount);
-      const y = (1 - bin / binCount) * h;
+      if (freq > maxFreq || freq < minFreq) continue;
+      const t = (Math.log(freq) - logMin) / (logMax - logMin);
+      const y = (1 - t) * h;
       if (y < 15 || y > h - 5) continue;
       ctx.fillText(freq >= 1000 ? `${freq / 1000}k` : `${freq}`, 6, y + 4);
       ctx.fillRect(0, y, 3, 1);

@@ -38,6 +38,16 @@ const { createSessionMiddleware, requireAuth, electronAutoLogin } = require("./s
 app.use(express.json());
 app.use(createSessionMiddleware());
 
+// CORS for remote admin site
+const ADMIN_ORIGIN = process.env.ADMIN_ORIGIN || "https://admin.imade.one";
+app.use("/api/admin", (req, res, next) => {
+  res.header("Access-Control-Allow-Origin", ADMIN_ORIGIN);
+  res.header("Access-Control-Allow-Methods", "GET, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
+
 // Auth middleware — auto-login when running locally (Electron or shared mode)
 const auth = (IMADE_MODE === "electron" || SHARED_MODE) ? electronAutoLogin : requireAuth;
 
@@ -538,6 +548,93 @@ app.get("/api/update-check", async (req, res) => {
     res.json({ available: false });
   }
 });
+
+// ---- ADMIN ----
+
+// Generate or load admin token
+const ADMIN_TOKEN_FILE = path.join(BASE_DIR, "data", "admin-token.txt");
+let ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
+if (!ADMIN_TOKEN) {
+  try { ADMIN_TOKEN = fs.readFileSync(ADMIN_TOKEN_FILE, "utf-8").trim(); }
+  catch {
+    ADMIN_TOKEN = require("crypto").randomBytes(32).toString("hex");
+    const tokenDir = path.dirname(ADMIN_TOKEN_FILE);
+    if (!fs.existsSync(tokenDir)) fs.mkdirSync(tokenDir, { recursive: true });
+    fs.writeFileSync(ADMIN_TOKEN_FILE, ADMIN_TOKEN);
+  }
+}
+console.log("  Admin token:", ADMIN_TOKEN);
+
+// Admin guard: session-based (local) or token-based (remote)
+function requireAdmin(req, res, next) {
+  // Check Bearer token first (for remote admin site)
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.slice(7);
+    if (token === ADMIN_TOKEN) return next();
+    return res.status(403).json({ error: "Invalid token" });
+  }
+  // Fall back to session-based auth (local)
+  if (req.session && req.session.userId === 1) return next();
+  res.status(403).json({ error: "Forbidden" });
+}
+
+// Token verification endpoint for remote admin login
+app.post("/api/admin/verify", (req, res) => {
+  res.header("Access-Control-Allow-Origin", ADMIN_ORIGIN);
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ") && authHeader.slice(7) === ADMIN_TOKEN) {
+    return res.json({ valid: true });
+  }
+  res.status(403).json({ error: "Invalid token" });
+});
+
+app.get("/api/admin/users", requireAdmin, (req, res) => {
+  res.json(db.getAllUsersWithStats());
+});
+
+app.put("/api/admin/users/:id", requireAdmin, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (id === 1) return res.status(400).json({ error: "Cannot modify primary user" });
+
+  const { username, password } = req.body;
+  if (username) {
+    const existing = db.getUserByUsername(username.trim());
+    if (existing && existing.id !== id) return res.status(409).json({ error: "Username taken" });
+    db.updateUserUsername(id, username.trim());
+  }
+  if (password) {
+    const hash = await bcrypt.hash(password, 10);
+    db.updateUserPassword(id, hash);
+  }
+  res.json(db.getAllUsersWithStats());
+});
+
+app.delete("/api/admin/users/:id", requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (id === 1) return res.status(400).json({ error: "Cannot delete primary user" });
+  // Clean up user's upload files
+  const userUploadsDir = path.join(UPLOADS_DIR, String(id));
+  if (fs.existsSync(userUploadsDir)) fs.rmSync(userUploadsDir, { recursive: true, force: true });
+  db.deleteUser(id);
+  res.json(db.getAllUsersWithStats());
+});
+
+app.get("/api/admin/users/:id/songs", requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const songs = db.getSongs(id);
+  const comps = db.getComparisons(id);
+  const elo = computeElo(songs, comps);
+  const ranked = songs
+    .map(s => ({ ...s, elo: Math.round(s.baseElo > 0 ? s.baseElo : (elo[s.id] || 500)) }))
+    .sort((a, b) => b.elo - a.elo);
+  res.json(ranked);
+});
+
+// ---- ADMIN PANEL (separate static site) ----
+
+const ADMIN_DIR = path.join(__dirname, "admin");
+app.use("/admin", auth, requireAdmin, express.static(ADMIN_DIR));
 
 // ---- FRONTEND ----
 

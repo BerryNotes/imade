@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>iMade Admin</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a14; color: #c4c4d4; min-height: 100vh; }
+    .header { padding: 24px 32px; border-bottom: 1px solid #1e1e35; display: flex; align-items: center; justify-content: space-between; }
+    .header h1 { font-size: 18px; font-weight: 700; color: #e2e2f0; letter-spacing: -0.02em; }
+    .header .stats { font-size: 12px; color: #6b7280; }
+    .header a { font-size: 12px; color: #818cf8; text-decoration: none; }
+    .header a:hover { text-decoration: underline; }
+    .content { max-width: 960px; margin: 0 auto; padding: 24px 20px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 10px 14px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; border-bottom: 1px solid #1e1e35; background: #0f0f1a; }
+    th.num { text-align: center; }
+    td { padding: 10px 14px; border-bottom: 1px solid #141425; }
+    td.num { text-align: center; font-family: 'SF Mono', Monaco, monospace; font-size: 12px; }
+    tr.user-row { cursor: pointer; transition: background 0.15s; }
+    tr.user-row:hover { background: #12121f; }
+    tr.user-row.expanded { background: #1a1a2e; }
+    .badge { display: inline-block; margin-left: 6px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #818cf8; background: rgba(129,140,248,0.12); padding: 2px 6px; border-radius: 4px; }
+    .actions { display: flex; gap: 6px; }
+    .btn { border: none; padding: 5px 12px; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
+    .btn:hover { opacity: 0.8; }
+    .btn-edit { background: rgba(129,140,248,0.15); color: #818cf8; }
+    .btn-delete { background: rgba(239,68,68,0.15); color: #ef4444; }
+    .btn-save { background: #818cf8; color: #0f0f1a; }
+    .btn-cancel { background: none; color: #6b7280; border: 1px solid #2a2a40; }
+    .edit-row td, .confirm-row td { padding: 12px 14px; background: #12121f; border-top: none; }
+    .edit-form { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; }
+    .field input { background: #0c0a1a; color: #e2e2f0; border: 1px solid #2a2a40; padding: 6px 10px; border-radius: 4px; font-size: 13px; outline: none; width: 180px; }
+    .field input:focus { border-color: #818cf8; }
+    .confirm-msg { color: #ef4444; font-size: 13px; }
+    .confirm-msg strong { color: #f87171; }
+    .songs-panel { background: #0c0a1a; border-top: 1px solid #1e1e35; max-height: 420px; overflow-y: auto; }
+    .songs-panel table { font-size: 12px; }
+    .songs-panel th { font-size: 9px; padding: 6px 12px; background: #0c0a1a; color: #4b5563; }
+    .songs-panel td { padding: 5px 12px; font-size: 12px; color: #9ca3af; border-bottom: 1px solid #1a1a2e; }
+    .loading { display: flex; align-items: center; justify-content: center; min-height: 200px; color: #6b7280; font-size: 13px; }
+    .error { color: #ef4444; font-size: 13px; text-align: center; padding: 12px; }
+    .empty { color: #6b7280; font-size: 12px; padding: 12px; }
+    .table-wrap { border-radius: 8px; border: 1px solid #1e1e35; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>iMade Admin</h1>
+      <div class="stats" id="stats"></div>
+    </div>
+    <a href="/">&larr; Back to App</a>
+  </div>
+  <div class="content">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Username</th>
+            <th class="num">Songs</th>
+            <th class="num">Comparisons</th>
+            <th class="num">Playlists</th>
+            <th>Joined</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="user-table"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const API = window.location.origin;
+    let users = [];
+    let expandedUser = null;
+    let editingUser = null;
+    let confirmingDelete = null;
+    let songCache = {};
+
+    async function apiFetch(url, opts = {}) {
+      const r = await fetch(API + url, { credentials: 'include', ...opts });
+      if (!r.ok) {
+        const text = await r.text();
+        let msg; try { msg = JSON.parse(text).error; } catch {}
+        throw new Error(msg || `Request failed (${r.status})`);
+      }
+      return r.json();
+    }
+
+    async function loadUsers() {
+      try {
+        users = await apiFetch('/api/admin/users');
+        render();
+      } catch (e) {
+        document.getElementById('user-table').innerHTML =
+          `<tr><td colspan="7" class="error">${esc(e.message)}</td></tr>`;
+      }
+    }
+
+    function esc(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    function formatDate(d) {
+      if (!d) return '\u2014';
+      return new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
+    function render() {
+      const totalSongs = users.reduce((s, u) => s + u.song_count, 0);
+      const totalComps = users.reduce((s, u) => s + u.comparison_count, 0);
+      document.getElementById('stats').textContent =
+        `${users.length} users \u00b7 ${totalSongs} songs \u00b7 ${totalComps} comparisons`;
+
+      const tbody = document.getElementById('user-table');
+      let html = '';
+
+      for (const u of users) {
+        const isExpanded = expandedUser === u.id;
+        const isEditing = editingUser === u.id;
+        const isConfirming = confirmingDelete === u.id;
+
+        html += `<tr class="user-row ${isExpanded ? 'expanded' : ''}" data-expand="${u.id}">
+          <td>${u.id}</td>
+          <td><strong>${esc(u.username)}</strong>${u.id === 1 ? '<span class="badge">admin</span>' : ''}</td>
+          <td class="num">${u.song_count}</td>
+          <td class="num">${u.comparison_count}</td>
+          <td class="num">${u.playlist_count}</td>
+          <td>${formatDate(u.created_at)}</td>
+          <td>${u.id !== 1 ? `<div class="actions">
+            <button class="btn btn-edit" data-edit="${u.id}">Edit</button>
+            <button class="btn btn-delete" data-confirm="${u.id}">Delete</button>
+          </div>` : ''}</td>
+        </tr>`;
+
+        if (isEditing) {
+          html += `<tr class="edit-row"><td colspan="7">
+            <div class="edit-form">
+              <div class="field"><label>Username</label><input id="edit-username" value="${esc(u.username)}" /></div>
+              <div class="field"><label>Password</label><input id="edit-password" type="password" placeholder="Leave empty to keep" /></div>
+              <button class="btn btn-save" data-save="${u.id}">Save</button>
+              <button class="btn btn-cancel" data-cancel-edit>Cancel</button>
+            </div>
+          </td></tr>`;
+        }
+
+        if (isConfirming) {
+          html += `<tr class="confirm-row"><td colspan="7">
+            <div style="display:flex;align-items:center;gap:12px">
+              <span class="confirm-msg">Delete <strong>${esc(u.username)}</strong> and all their data? This cannot be undone.</span>
+              <button class="btn btn-delete" data-do-delete="${u.id}">Confirm Delete</button>
+              <button class="btn btn-cancel" data-cancel-delete>Cancel</button>
+            </div>
+          </td></tr>`;
+        }
+
+        if (isExpanded) {
+          const songs = songCache[u.id];
+          html += `<tr><td colspan="7" style="padding:0;border-top:none">
+            <div class="songs-panel">`;
+          if (!songs) {
+            html += `<div class="loading">Loading songs...</div>`;
+          } else if (songs.length === 0) {
+            html += `<div class="empty">No songs</div>`;
+          } else {
+            html += `<table><thead><tr>
+              <th class="num">#</th><th>Title</th><th>Genre</th><th class="num">Elo</th><th>Date</th>
+            </tr></thead><tbody>`;
+            const show = songs.slice(0, 50);
+            show.forEach((s, i) => {
+              html += `<tr>
+                <td class="num">${i + 1}</td>
+                <td><strong>${esc(s.title)}</strong></td>
+                <td>${esc(s.genre || '\u2014')}</td>
+                <td class="num">${s.elo}</td>
+                <td>${esc(s.date || '\u2014')}</td>
+              </tr>`;
+            });
+            if (songs.length > 50) {
+              html += `<tr><td colspan="5" class="empty">...and ${songs.length - 50} more</td></tr>`;
+            }
+            html += `</tbody></table>`;
+          }
+          html += `</div></td></tr>`;
+        }
+      }
+
+      tbody.innerHTML = html;
+    }
+
+    document.addEventListener('click', async (e) => {
+      const t = e.target;
+
+      // Expand/collapse user row
+      const expandRow = t.closest('[data-expand]');
+      if (expandRow && !t.closest('.actions') && !t.closest('.edit-row') && !t.closest('.confirm-row') && !t.closest('button')) {
+        const id = parseInt(expandRow.dataset.expand);
+        if (expandedUser === id) {
+          expandedUser = null;
+        } else {
+          expandedUser = id;
+          if (!songCache[id]) {
+            render();
+            try {
+              songCache[id] = await apiFetch(`/api/admin/users/${id}/songs`);
+            } catch { songCache[id] = []; }
+          }
+        }
+        render();
+        return;
+      }
+
+      // Edit button
+      if (t.dataset.edit) {
+        editingUser = parseInt(t.dataset.edit);
+        confirmingDelete = null;
+        render();
+        return;
+      }
+
+      // Save edit
+      if (t.dataset.save) {
+        const id = parseInt(t.dataset.save);
+        const username = document.getElementById('edit-username')?.value.trim();
+        const password = document.getElementById('edit-password')?.value.trim();
+        const body = {};
+        if (username) body.username = username;
+        if (password) body.password = password;
+        if (Object.keys(body).length === 0) { editingUser = null; render(); return; }
+        try {
+          users = await apiFetch(`/api/admin/users/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          editingUser = null;
+          render();
+        } catch (e) { alert(e.message); }
+        return;
+      }
+
+      // Cancel edit
+      if (t.dataset.cancelEdit !== undefined) {
+        editingUser = null; render(); return;
+      }
+
+      // Delete confirmation
+      if (t.dataset.confirm) {
+        confirmingDelete = parseInt(t.dataset.confirm);
+        editingUser = null;
+        render();
+        return;
+      }
+
+      // Do delete
+      if (t.dataset.doDelete) {
+        const id = parseInt(t.dataset.doDelete);
+        try {
+          users = await apiFetch(`/api/admin/users/${id}`, { method: 'DELETE' });
+          confirmingDelete = null;
+          expandedUser = null;
+          delete songCache[id];
+          render();
+        } catch (e) { alert(e.message); }
+        return;
+      }
+
+      // Cancel delete
+      if (t.dataset.cancelDelete !== undefined) {
+        confirmingDelete = null; render(); return;
+      }
+    });
+
+    loadUsers();
+  </script>
+</body>
+</html>
