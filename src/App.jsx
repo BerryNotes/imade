@@ -25,6 +25,7 @@ function App() {
   const [comparisons, setComparisons] = useState([]);
   const [playlists, setPlaylists] = useState([]);
   const [loaded, setLoaded] = useState(false);
+  const [planInfo, setPlanInfo] = useState(null);
   const [battlePair, setBattlePair] = useState(null);
   const [toast, setToast] = useState(null);
   const [lastUpdateCompCount, setLastUpdateCompCount] = useState(() => {
@@ -48,8 +49,15 @@ function App() {
   const [showWinLoss, setShowWinLoss] = useState(() => localStorage.getItem("imade_showWinLoss") !== "0");
   const [rowDensity, setRowDensity] = useState(() => localStorage.getItem("imade_rowDensity") || "comfortable");
 
+  const audio = useGlobalAudio();
+
   // Auth check on mount
   useEffect(() => {
+    // If user explicitly signed out, skip auto-login and show auth screen
+    if (localStorage.getItem("imade_signedOut") === "1") {
+      setAuthChecked(true);
+      return;
+    }
     api.getMe().then(data => {
       setUser(data.user);
       setAuthChecked(true);
@@ -61,6 +69,7 @@ function App() {
   }, []);
 
   const handleAuth = useCallback((userData) => {
+    localStorage.removeItem("imade_signedOut");
     setUser(userData);
     // Reset app state for new session
     setSongs([]); setGenres([]); setComparisons([]); setPlaylists([]);
@@ -68,17 +77,20 @@ function App() {
   }, []);
 
   const handleLogout = useCallback(async () => {
+    // Stop audio playback
+    audio.stop();
     // Flush listen times before logout
     if (listenTimesDirtyRef.current) {
       await api.put("/api/listen-times", listenTimesRef.current).catch(() => {});
       listenTimesDirtyRef.current = false;
     }
     await api.logout().catch(() => {});
+    localStorage.setItem("imade_signedOut", "1");
     setUser(null);
     setSongs([]); setGenres([]); setComparisons([]); setPlaylists([]);
     setListenTimes({}); listenTimesRef.current = {};
     setLoaded(false);
-  }, []);
+  }, [audio]);
 
   const persistSetting = useCallback((key, val, setter) => { setter(val); localStorage.setItem("imade_" + key, String(val)); }, []);
 
@@ -93,6 +105,7 @@ function App() {
   const [libSelectMode, setLibSelectMode] = useState(false);
   const [libSelectedIds, setLibSelectedIds] = useState(new Set());
   const [libBatchGenre, setLibBatchGenre] = useState("");
+  const [showSettings, setShowSettings] = useState(false);
 
   const [focusedSessionSongs, setFocusedSessionSongs] = useState(null);
 
@@ -140,6 +153,7 @@ function App() {
         api.get("/api/playlists"),
       ]);
       setSongs(s); setGenres(g); setComparisons(c); setPlaylists(p);
+      api.get("/api/plan").then(setPlanInfo).catch(() => {});
     } catch (e) {
       console.error("Failed to load data:", e);
       showToast("Failed to connect to server");
@@ -158,8 +172,6 @@ function App() {
       if (data.available) setUpdateInfo(data);
     }).catch(() => {});
   }, []);
-
-  const audio = useGlobalAudio();
 
   // Global keyboard shortcuts: space=pause, left/right=skip songs
   useEffect(() => {
@@ -355,7 +367,6 @@ function App() {
     { id: "visualizer", label: "Visualizer" },
     { id: "playlists", label: "Playlists", count: playlists.length },
     { id: "stats", label: "Stats" },
-    { id: "genres", label: "Settings" },
   ];
 
   const uploadPct = uploadProgress.total > 0 ? uploadProgress.done / uploadProgress.total : 0;
@@ -412,8 +423,20 @@ function App() {
       {/* Header */}
       <div ref={headerRef} style={{position:"sticky",top:isElectron?32:0,zIndex:20,background:"#13102a"}}>
       <div style={{padding: uploading ? "80px 24px 0" : "32px 24px 0",maxWidth:1200,margin:"0 auto",transition:"padding 0.3s"}}>
-        <div style={{display:"flex",alignItems:"baseline",gap:12,marginBottom:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:0}}>
           <h1 style={{margin:0,fontSize:"clamp(28px,6vw,40px)",fontWeight:700,background:"linear-gradient(135deg,#e2e8f0,#818cf8)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",letterSpacing:"-0.02em",lineHeight:1.1}}>IMAde</h1>
+          {user && (
+            <button onClick={() => setShowSettings(!showSettings)}
+              style={{display:"flex",alignItems:"center",gap:10,background:"transparent",border:"none",cursor:"pointer",padding:0,flexShrink:0}}>
+              <span style={{color:"#9a9ab0",fontSize:13,fontWeight:500,transition:"color 0.15s"}}>{user.username}</span>
+              <span style={{width:44,height:44,borderRadius:"50%",background: showSettings ? "linear-gradient(135deg,#6366f1,#818cf8)" : "linear-gradient(135deg,#4338ca,#6366f1)",
+                display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:18,fontWeight:700,
+                border: showSettings ? "2px solid #a5b4fc" : "2px solid #2a2a45",flexShrink:0,transition:"all 0.15s",
+                boxShadow: showSettings ? "0 0 12px rgba(129,140,248,0.4)" : "0 2px 8px rgba(0,0,0,0.3)"}}>
+                {user.username.charAt(0).toUpperCase()}
+              </span>
+            </button>
+          )}
         </div>
 
         {/* Tabs */}
@@ -437,6 +460,28 @@ function App() {
         </div>
       </div>
       </div>
+
+      {/* Settings overlay */}
+      {showSettings && (
+        <div style={{position:"fixed",inset:0,zIndex:50}} onClick={() => setShowSettings(false)}>
+          <div onClick={e => e.stopPropagation()} style={{position:"absolute",top:isElectron?32+8:8,right:8,width:Math.min(520,window.innerWidth-32),maxHeight:"calc(100vh - 80px)",overflowY:"auto",
+            background:"#13102a",border:"1px solid #2a2a45",borderRadius:16,boxShadow:"0 20px 60px rgba(0,0,0,0.6)",animation:"fadeUp 0.2s ease-out",padding:"20px 0"}}>
+            <div style={{padding:"0 20px"}}>
+              <React.Suspense fallback={<div style={{textAlign:"center",padding:40,color:"#6b7280"}}>Loading...</div>}>
+                <SettingsTab genres={genres} songs={songs} comparisons={comparisons} playlists={playlists} onRefresh={refresh} showToast={showToast}
+                  showVariance={showVariance} setShowVariance={(v) => { setShowVariance(v); localStorage.setItem("imade_showVariance", v ? "1" : "0"); }}
+                  sessionLength={sessionLength} setSessionLength={(v) => persistSetting("sessionLength", v, setSessionLength)}
+                  bracketSize={bracketSize} setBracketSize={(v) => { const n = Number(v); setBracketSize(n); localStorage.setItem("imade_bracketSize", String(n)); }}
+                  showWinLoss={showWinLoss} setShowWinLoss={(v) => { setShowWinLoss(v); localStorage.setItem("imade_showWinLoss", v ? "1" : "0"); }}
+                  rowDensity={rowDensity} setRowDensity={(v) => persistSetting("rowDensity", v, setRowDensity)}
+                  listenTimes={listenTimes} setListenTimes={setListenTimes} listenTimesRef={listenTimesRef}
+                  user={user} setUser={setUser} onLogout={() => { setShowSettings(false); handleLogout(); }}
+                />
+              </React.Suspense>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast */}
       {toast && <div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",background:"#1e1e35",border:"1px solid #2a2a45",borderRadius:10,padding:"10px 20px",color:"#e2e8f0",fontSize:13,zIndex:100,animation:"fadeUp 0.2s ease-out",boxShadow:"0 4px 20px rgba(0,0,0,0.4)"}}>{toast}</div>}
@@ -490,7 +535,7 @@ function App() {
       {tab === "visualizer" && (
         <React.Suspense fallback={<div style={{textAlign:"center",padding:40,color:"#6b7280"}}>Loading...</div>}>
           <div key="visualizer" style={{padding:"8px 8px 0",animation:"tabFadeIn 0.2s ease-out"}}>
-            <VisualizerTab songs={songs} comparisons={comparisons} />
+            <VisualizerTab songs={songs} />
           </div>
         </React.Suspense>
       )}
@@ -523,7 +568,7 @@ function App() {
               onRefresh={refresh} genres={genres} songs={songs}
               uploadFiles={uploadFiles} setUploadFiles={setUploadFiles}
               uploading={uploading} uploadDone={uploadDone} setUploadDone={setUploadDone}
-              uploadProgress={uploadProgress} startUpload={startUpload} />}
+              uploadProgress={uploadProgress} startUpload={startUpload} planInfo={planInfo} />}
             {tab === "playlists" && <PlaylistsTab songs={songs} playlists={playlists} genres={genres} comparisons={comparisons} onRefresh={refresh} showToast={showToast}
               setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx} />}
             {tab === "rankings" && <RankingsTab songs={songs} comparisons={comparisons} onRefresh={refresh} showToast={showToast}
@@ -535,15 +580,6 @@ function App() {
               setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx} switchTab={switchTab}
               onStartFocusedSession={(songIds) => { setFocusedSessionSongs(songIds); switchTab("battle"); }}
               playlists={playlists} onRefresh={refresh} showToast={showToast} />}
-            {tab === "genres" && <SettingsTab genres={genres} songs={songs} comparisons={comparisons} playlists={playlists} onRefresh={refresh} showToast={showToast}
-              showVariance={showVariance} setShowVariance={(v) => { setShowVariance(v); localStorage.setItem("imade_showVariance", v ? "1" : "0"); }}
-              sessionLength={sessionLength} setSessionLength={(v) => persistSetting("sessionLength", v, setSessionLength)}
-              bracketSize={bracketSize} setBracketSize={(v) => { const n = Number(v); setBracketSize(n); localStorage.setItem("imade_bracketSize", String(n)); }}
-              showWinLoss={showWinLoss} setShowWinLoss={(v) => { setShowWinLoss(v); localStorage.setItem("imade_showWinLoss", v ? "1" : "0"); }}
-              rowDensity={rowDensity} setRowDensity={(v) => persistSetting("rowDensity", v, setRowDensity)}
-              listenTimes={listenTimes} setListenTimes={setListenTimes} listenTimesRef={listenTimesRef}
-              user={user} onLogout={handleLogout}
-              />}
           </div>
           </React.Suspense>
         )}

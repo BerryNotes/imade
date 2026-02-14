@@ -62,17 +62,31 @@ function requireAuth(req, res, next) {
   res.status(401).json({ error: "Not authenticated" });
 }
 
-// Electron/local auto-login: ALWAYS force the "local" user on every request.
-// Never trust existing session — prevents data loss from stale/expired cookies.
+// Electron/local auto-login: respect explicit login sessions, but
+// validate that the user still exists. Falls back to primary (first) user.
 function electronAutoLogin(req, res, next) {
-  let user = db.getUserByUsername("local");
+  // If there's an active session, validate it
+  if (req.session && req.session.userId) {
+    const sessionUser = db.getUserById(req.session.userId);
+    if (sessionUser) {
+      res.setHeader("X-Auth-User", `${sessionUser.id}:${sessionUser.username}`);
+      return next();
+    }
+    // User no longer exists — clear invalid session
+    console.log(`[AUTH] session userId=${req.session.userId} not found in DB, falling back to primary user`);
+    delete req.session.userId;
+  }
+  // No valid session — auto-login as the primary user (id=1)
+  console.log(`[AUTH] No valid session for ${req.method} ${req.path}, auto-login as primary user (sessionId=${req.sessionID})`);
+  let user = db.getUserById(1);
   if (!user) {
     const bcrypt = require("bcryptjs");
-    const hash = bcrypt.hashSync("local-electron-user", 10);
-    db.createUser("local", hash);
-    user = db.getUserByUsername("local");
+    const hash = bcrypt.hashSync("imade-default-user", 10);
+    db.createUser("admin", hash);
+    user = db.getUserById(1);
   }
   req.session.userId = user.id;
+  res.setHeader("X-Auth-User", `${user.id}:${user.username}:auto`);
   next();
 }
 

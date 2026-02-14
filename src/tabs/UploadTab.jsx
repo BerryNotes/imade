@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 
-function UploadTab({ onRefresh, genres, songs, uploadFiles, setUploadFiles, uploading, uploadDone, setUploadDone, uploadProgress, startUpload, showToast }) {
+function UploadTab({ onRefresh, genres, songs, uploadFiles, setUploadFiles, uploading, uploadDone, setUploadDone, uploadProgress, startUpload, showToast, planInfo }) {
   const [dragging, setDragging] = useState(false);
   const [dupes, setDupes] = useState([]);
   const inputRef = useRef(null);
@@ -39,9 +39,33 @@ function UploadTab({ onRefresh, genres, songs, uploadFiles, setUploadFiles, uplo
   const removeFile = (name) => setUploadFiles(prev=>prev.filter(f=>f.name!==name));
 
   const uploadPct = uploadProgress.total > 0 ? uploadProgress.done / uploadProgress.total : 0;
+  const isTrial = !planInfo || planInfo.plan === "trial";
+  const songLimit = planInfo?.songLimit || 25;
+  const remaining = isTrial ? songLimit - songs.length : Infinity;
+  const atLimit = isTrial && remaining <= 0;
 
   return (
     <div>
+      {/* Song limit indicator — only show for trial users */}
+      {planInfo && isTrial && (
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,padding:"12px 18px",background:atLimit?"#2d1a1a":"#14142a",border:"1px solid "+(atLimit?"#5a2a2a":"#2a2a45"),borderRadius:12}}>
+          <div>
+            <span style={{color:atLimit?"#ef4444":"#e2e8f0",fontSize:13,fontWeight:600}}>{songs.length} / {songLimit} songs</span>
+            <span style={{color:"#6b6b80",fontSize:12,marginLeft:8}}>Free trial</span>
+          </div>
+          <div style={{width:120,height:6,background:"#1a1a2e",borderRadius:3,overflow:"hidden"}}>
+            <div style={{width:Math.min(100,songs.length/songLimit*100)+"%",height:"100%",background:atLimit?"#ef4444":"linear-gradient(90deg,#4338ca,#818cf8)",borderRadius:3,transition:"width 0.3s"}} />
+          </div>
+        </div>
+      )}
+
+      {atLimit ? (
+        <div style={{border:"2px dashed #5a2a2a",borderRadius:20,padding:"60px 40px",textAlign:"center",marginBottom:24,background:"#1a121244"}}>
+          <div style={{fontSize:48,marginBottom:16,opacity:0.6}}>🔒</div>
+          <p style={{color:"#ef4444",fontSize:18,marginBottom:8}}>Song limit reached</p>
+          <p style={{color:"#6b6b80",fontSize:13}}>You've reached the {songLimit}-song limit on the free trial. Upgrade to add unlimited songs.</p>
+        </div>
+      ) : (
       <div
         onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}
         onClick={()=>inputRef.current?.click()}
@@ -61,7 +85,9 @@ function UploadTab({ onRefresh, genres, songs, uploadFiles, setUploadFiles, uplo
           {dragging ? "Drop your songs here" : "Drag & drop audio files here"}
         </p>
         <p style={{color:"#6b6b80",fontSize:13}}>or click to browse · mp3, wav, flac, m4a, ogg, etc.</p>
+        {isTrial && remaining < 10 && <p style={{color:"#f59e0b",fontSize:12,marginTop:8}}>{remaining} song{remaining !== 1 ? "s" : ""} remaining on free trial</p>}
       </div>
+      )}
 
       {dupes.length > 0 && (
         <div style={{background:"#2d1f00",border:"1px solid #f59e0b44",borderRadius:12,padding:"14px 18px",marginBottom:16,animation:"fadeUp 0.3s ease-out"}}>

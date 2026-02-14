@@ -38,6 +38,7 @@ const api = {
   register: (username, password) => api.post("/api/register", { username, password }),
   logout: () => api.post("/api/logout"),
   getMe: () => api.get("/api/me"),
+  updateProfile: (fields) => api.put("/api/profile", fields),
 
   // Admin helpers
   adminGetUsers: () => api.get("/api/admin/users"),

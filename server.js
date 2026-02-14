@@ -7,6 +7,7 @@ const bcrypt = require("bcryptjs");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const IMADE_MODE = process.env.IMADE_MODE || "web"; // "electron" or "web"
+const TRIAL_SONG_LIMIT = 25;
 
 // In web mode, share the Electron app's data directory if it exists
 const SHARED_MODE = !process.env.APP_DATA_PATH && IMADE_MODE === "web" && (() => {
@@ -53,11 +54,16 @@ const auth = (IMADE_MODE === "electron" || SHARED_MODE) ? electronAutoLogin : re
 
 // ---- AUTH ROUTES (web mode only) ----
 
+// Login attempt tracking: { ip: { count, lockedUntil } }
+const loginAttempts = new Map();
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
+
 app.post("/api/register", async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: "Username and password required" });
   if (username.length < 2) return res.status(400).json({ error: "Username must be at least 2 characters" });
-  if (password.length < 4) return res.status(400).json({ error: "Password must be at least 4 characters" });
+  if (password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
 
   const existing = db.getUserByUsername(username.trim());
   if (existing) return res.status(409).json({ error: "Username already taken" });
@@ -87,17 +93,39 @@ app.post("/api/login", async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: "Username and password required" });
 
-  // Accept "admin" as alias for "local" user
-  const lookupName = username.trim().toLowerCase() === "admin" ? "local" : username.trim();
-  const user = db.getUserByUsername(lookupName);
-  if (!user) return res.status(401).json({ error: "Invalid credentials" });
+  // Rate limiting by IP
+  const ip = req.ip;
+  const attempt = loginAttempts.get(ip) || { count: 0, lockedUntil: 0 };
+  if (attempt.lockedUntil > Date.now()) {
+    const mins = Math.ceil((attempt.lockedUntil - Date.now()) / 60000);
+    return res.status(429).json({ error: `Too many attempts. Try again in ${mins} minute${mins > 1 ? "s" : ""}.` });
+  }
+
+  const user = db.getUserByUsername(username.trim());
+  if (!user) {
+    attempt.count++;
+    if (attempt.count >= MAX_LOGIN_ATTEMPTS) { attempt.lockedUntil = Date.now() + LOCKOUT_MS; attempt.count = 0; }
+    loginAttempts.set(ip, attempt);
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
 
   try {
     const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid) return res.status(401).json({ error: "Invalid credentials" });
+    if (!valid) {
+      attempt.count++;
+      if (attempt.count >= MAX_LOGIN_ATTEMPTS) { attempt.lockedUntil = Date.now() + LOCKOUT_MS; attempt.count = 0; }
+      loginAttempts.set(ip, attempt);
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
 
+    // Reset attempts on success
+    loginAttempts.delete(ip);
     req.session.userId = user.id;
-    res.json({ user: { id: user.id, username: user.username } });
+    req.session.save((err) => {
+      if (err) console.error("Session save error:", err);
+      console.log(`[LOGIN] user="${user.username}" id=${user.id} sessionId=${req.sessionID}`);
+      res.json({ user: { id: user.id, username: user.username } });
+    });
   } catch (e) {
     console.error("Login error:", e);
     res.status(500).json({ error: "Login failed" });
@@ -105,12 +133,17 @@ app.post("/api/login", async (req, res) => {
 });
 
 app.post("/api/logout", (req, res) => {
-  // In local/shared mode, logout is a no-op — always stay as local user
-  if (IMADE_MODE === "electron" || SHARED_MODE) {
-    return res.json({ success: true });
-  }
   req.session.destroy(() => {
+    res.clearCookie("connect.sid");
     res.json({ success: true });
+  });
+});
+
+app.get("/api/debug-session", (req, res) => {
+  res.json({
+    sessionId: req.sessionID,
+    userId: req.session?.userId || null,
+    cookie: req.headers.cookie || null,
   });
 });
 
@@ -118,7 +151,40 @@ app.get("/api/me", auth, (req, res) => {
   // auth middleware already guarantees req.session.userId is set
   const user = db.getUserById(req.session.userId);
   if (!user) return res.status(401).json({ error: "User not found" });
+  console.log(`[ME] sessionUserId=${req.session.userId} username="${user.username}" sessionId=${req.sessionID}`);
   res.json({ user: { id: user.id, username: user.username } });
+});
+
+app.get("/api/plan", auth, (req, res) => {
+  const userId = req.session.userId;
+  const user = db.getUserById(userId);
+  const plan = user?.plan || "trial";
+  const songCount = db.getSongs(userId).length;
+  if (plan === "full") {
+    res.json({ plan: "full", songLimit: null, songCount, remaining: null });
+  } else {
+    res.json({ plan: "trial", songLimit: TRIAL_SONG_LIMIT, songCount, remaining: TRIAL_SONG_LIMIT - songCount });
+  }
+});
+
+app.put("/api/profile", auth, async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    const { username, password } = req.body;
+    if (username) {
+      if (username.trim().length < 2) return res.status(400).json({ error: "Username must be at least 2 characters" });
+      const existing = db.getUserByUsername(username.trim());
+      if (existing && existing.id !== userId) return res.status(409).json({ error: "Username already taken" });
+      db.updateUserUsername(userId, username.trim());
+    }
+    if (password) {
+      if (password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
+      const hash = await bcrypt.hash(password, 10);
+      db.updateUserPassword(userId, hash);
+    }
+    const user = db.getUserById(userId);
+    res.json({ user: { id: user.id, username: user.username } });
+  } catch (e) { console.error("Profile update error:", e); res.status(500).json({ error: e.message }); }
 });
 
 // ---- PER-USER FILE UPLOADS ----
@@ -161,16 +227,29 @@ app.get("/uploads/:filename", auth, (req, res) => {
 // ---- SONGS ----
 
 app.get("/api/songs", auth, (req, res) => {
-  res.json(db.getSongs(req.session.userId));
+  const songs = db.getSongs(req.session.userId);
+  console.log(`[SONGS] userId=${req.session.userId} returning ${songs.length} songs`);
+  res.json(songs);
 });
 
 app.post("/api/songs/bulk", auth, upload.array("audio", 200), (req, res) => {
   const userId = req.session.userId;
+  const user = db.getUserById(userId);
+  const isTrial = (user?.plan || "trial") === "trial";
+  const existing = db.getSongs(userId);
+
+  if (isTrial) {
+    const remaining = TRIAL_SONG_LIMIT - existing.length;
+    if (remaining <= 0) return res.status(403).json({ error: `Song limit reached (${TRIAL_SONG_LIMIT}). Upgrade to add more songs.` });
+  }
+
   const newSongs = [];
   let dates = {};
   try { dates = JSON.parse(req.body.dates || "{}"); } catch (e) {}
 
-  for (const file of req.files || []) {
+  const maxFiles = isTrial ? TRIAL_SONG_LIMIT - existing.length : req.files?.length || 0;
+  const files = (req.files || []).slice(0, maxFiles);
+  for (const file of files) {
     const origName = file.originalname;
     const title = origName.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
     const clientDate = dates[origName];
@@ -193,6 +272,12 @@ app.post("/api/songs/bulk", auth, upload.array("audio", 200), (req, res) => {
 
 app.post("/api/songs", auth, upload.single("audio"), (req, res) => {
   const userId = req.session.userId;
+  const user = db.getUserById(userId);
+  const isTrial = (user?.plan || "trial") === "trial";
+  if (isTrial) {
+    const existing = db.getSongs(userId);
+    if (existing.length >= TRIAL_SONG_LIMIT) return res.status(403).json({ error: `Song limit reached (${TRIAL_SONG_LIMIT}). Upgrade to add more songs.` });
+  }
   const song = {
     id: Date.now().toString(),
     title: req.body.title, date: req.body.date,
@@ -574,8 +659,11 @@ function requireAdmin(req, res, next) {
     if (token === ADMIN_TOKEN) return next();
     return res.status(403).json({ error: "Invalid token" });
   }
-  // Fall back to session-based auth (local)
-  if (req.session && req.session.userId === 1) return next();
+  // Fall back to session-based auth (local/primary user)
+  if (req.session && req.session.userId) {
+    const u = db.getUserById(req.session.userId);
+    if (u && u.role === "admin") return next();
+  }
   res.status(403).json({ error: "Forbidden" });
 }
 
@@ -594,37 +682,46 @@ app.get("/api/admin/users", requireAdmin, (req, res) => {
 });
 
 app.post("/api/admin/users", requireAdmin, async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) return res.status(400).json({ error: "Username and password required" });
-  if (username.length < 2) return res.status(400).json({ error: "Username must be at least 2 characters" });
-  if (password.length < 4) return res.status(400).json({ error: "Password must be at least 4 characters" });
-  const existing = db.getUserByUsername(username.trim());
-  if (existing) return res.status(409).json({ error: "Username already taken" });
-  const hash = await bcrypt.hash(password, 10);
-  db.createUser(username.trim(), hash);
-  const user = db.getUserByUsername(username.trim());
-  const defaultGenres = ["Hip Hop", "R&B", "Pop", "Rock", "Electronic", "Jazz", "Lo-Fi", "Soul", "Funk", "Indie", "Ambient", "Trap", "Acoustic", "Experimental", "Other"];
-  for (const g of defaultGenres) db.addGenre(g, user.id);
-  const userUploads = path.join(UPLOADS_DIR, String(user.id));
-  if (!fs.existsSync(userUploads)) fs.mkdirSync(userUploads, { recursive: true });
-  res.json(db.getAllUsersWithStats());
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: "Username and password required" });
+    if (username.length < 2) return res.status(400).json({ error: "Username must be at least 2 characters" });
+    if (password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
+    const existing = db.getUserByUsername(username.trim());
+    if (existing) return res.status(409).json({ error: "Username already taken" });
+    const hash = await bcrypt.hash(password, 10);
+    db.createUser(username.trim(), hash);
+    const user = db.getUserByUsername(username.trim());
+    const defaultGenres = ["Hip Hop", "R&B", "Pop", "Rock", "Electronic", "Jazz", "Lo-Fi", "Soul", "Funk", "Indie", "Ambient", "Trap", "Acoustic", "Experimental", "Other"];
+    for (const g of defaultGenres) db.addGenre(g, user.id);
+    const userUploads = path.join(UPLOADS_DIR, String(user.id));
+    if (!fs.existsSync(userUploads)) fs.mkdirSync(userUploads, { recursive: true });
+    res.json(db.getAllUsersWithStats());
+  } catch (e) { console.error("Admin create user error:", e); res.status(500).json({ error: e.message }); }
 });
 
 app.put("/api/admin/users/:id", requireAdmin, async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (id === 1) return res.status(400).json({ error: "Cannot modify primary user" });
-
-  const { username, password } = req.body;
-  if (username) {
-    const existing = db.getUserByUsername(username.trim());
-    if (existing && existing.id !== id) return res.status(409).json({ error: "Username taken" });
-    db.updateUserUsername(id, username.trim());
-  }
-  if (password) {
-    const hash = await bcrypt.hash(password, 10);
-    db.updateUserPassword(id, hash);
-  }
-  res.json(db.getAllUsersWithStats());
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { username, password, plan, role } = req.body;
+    if (username) {
+      const existing = db.getUserByUsername(username.trim());
+      if (existing && existing.id !== id) return res.status(409).json({ error: "Username taken" });
+      db.updateUserUsername(id, username.trim());
+    }
+    if (password) {
+      const hash = await bcrypt.hash(password, 10);
+      db.updateUserPassword(id, hash);
+    }
+    if (plan && (plan === "trial" || plan === "full")) {
+      db.updateUserPlan(id, plan);
+    }
+    if (role && (role === "admin" || role === "user")) {
+      if (id === 1 && role !== "admin") return res.status(400).json({ error: "Cannot remove admin from primary user" });
+      db.updateUserRole(id, role);
+    }
+    res.json(db.getAllUsersWithStats());
+  } catch (e) { console.error("Admin update user error:", e); res.status(500).json({ error: e.message }); }
 });
 
 app.delete("/api/admin/users/:id", requireAdmin, (req, res) => {

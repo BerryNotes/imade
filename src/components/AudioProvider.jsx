@@ -37,16 +37,11 @@ function AudioProvider({ children }) {
     if (currentKey !== src) {
       el.src = src;
     }
-    // Resume Web Audio context before playing — must complete first or audio is silent
-    const ctxReady = (webAudioCtxRef.current && webAudioCtxRef.current.state === 'suspended')
-      ? webAudioCtxRef.current.resume() : Promise.resolve();
-    ctxReady.catch(() => {}).then(() => {
-      el.play().then(() => {
-        if (playAttemptRef.current !== attemptId) return;
-        setIsPlaying(true); isPlayingRef.current = true; setPlayingSrc(src); notify();
-      }).catch((err) => {
-        console.warn("[iMade] audio play failed:", err?.message || err);
-      });
+    el.play().then(() => {
+      if (playAttemptRef.current !== attemptId) return;
+      setIsPlaying(true); isPlayingRef.current = true; setPlayingSrc(src); notify();
+    }).catch((err) => {
+      console.warn("[iMade] audio play failed:", err?.message || err);
     });
   }, [notify, getSrcKey]);
 
@@ -140,17 +135,40 @@ function AudioProvider({ children }) {
     }
     const ctx = ensureWebAudioCtx();
     if (!ctx) return null;
-    const source = ctx.createMediaElementSource(el);
-    sourceNodeRef.current = source;
+    // Use captureStream instead of createMediaElementSource — it can be called
+    // multiple times safely and doesn't reroute audio through the AudioContext
+    if (!sourceNodeRef.current) {
+      const stream = el.captureStream ? el.captureStream() : el.mozCaptureStream?.();
+      if (!stream) return null;
+      sourceNodeRef.current = ctx.createMediaStreamSource(stream);
+    }
+    const source = sourceNodeRef.current;
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 8192;
     analyser.smoothingTimeConstant = 0.92;
     source.connect(analyser);
-    analyser.connect(ctx.destination);
+    // Don't connect to destination — <audio> element handles playback natively
     analyserRef.current = analyser;
     if (ctx.state === 'suspended') ctx.resume();
     return analyser;
   }, [resumeAudioContext, ensureWebAudioCtx]);
+
+  // Reconnect captureStream when song changes — old stream stops producing data on src change
+  useEffect(() => {
+    if (!playingSrc || !analyserRef.current || !webAudioCtxRef.current) return;
+    const el = audioRef.current;
+    if (!el) return;
+    const ctx = webAudioCtxRef.current;
+    // Disconnect old source, create fresh stream for the new song
+    if (sourceNodeRef.current) {
+      try { sourceNodeRef.current.disconnect(); } catch (e) {}
+    }
+    const stream = el.captureStream ? el.captureStream() : el.mozCaptureStream?.();
+    if (!stream) return;
+    sourceNodeRef.current = ctx.createMediaStreamSource(stream);
+    sourceNodeRef.current.connect(analyserRef.current);
+    if (ctx.state === 'suspended') ctx.resume();
+  }, [playingSrc]);
 
   // --- Global waveform recording (runs regardless of which tab is open) ---
   const WAVEFORM_SIZE = 2048;

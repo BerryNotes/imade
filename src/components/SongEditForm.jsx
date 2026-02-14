@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
 
-function SongEditForm({ song, genres, onSave, onCancel }) {
+function SongEditForm({ song, onSave, onCancel }) {
   const [title, setTitle] = useState(song?.title || "");
   const [date, setDate] = useState(song?.date || new Date().toISOString().split("T")[0]);
-  const [genre, setGenre] = useState(song?.genre || "");
   const [audioFile, setAudioFile] = useState(null);
   const [audioName, setAudioName] = useState(song?.audioName || "");
   const [submitting, setSubmitting] = useState(false);
@@ -17,7 +16,6 @@ function SongEditForm({ song, genres, onSave, onCancel }) {
     const fd = new FormData();
     fd.append("title",title.trim());
     fd.append("date",date);
-    fd.append("genre",genre);
     if (audioFile) fd.append("audio",audioFile);
     try { await onSave(fd, song?.id); } finally { setSubmitting(false); }
   };
@@ -31,18 +29,9 @@ function SongEditForm({ song, genres, onSave, onCancel }) {
           <input value={title} onChange={e=>setTitle(e.target.value)} placeholder="Song name" style={inputStyle}
             onFocus={e=>e.target.style.borderColor="#4338ca"} onBlur={e=>e.target.style.borderColor="#2a2a45"} />
         </div>
-        <div style={{display:"flex",gap:14}}>
-          <div style={{flex:1}}>
-            <label style={labelStyle}>Date</label>
-            <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={inputStyle}/>
-          </div>
-          <div style={{flex:1}}>
-            <label style={labelStyle}>Genre</label>
-            <select value={genre} onChange={e=>setGenre(e.target.value)} style={{...inputStyle,cursor:"pointer",appearance:"none"}}>
-              <option value="">No genre</option>
-              {genres.map(g=><option key={g} value={g}>{g}</option>)}
-            </select>
-          </div>
+        <div>
+          <label style={labelStyle}>Date</label>
+          <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={inputStyle}/>
         </div>
         <div>
           <label style={labelStyle}>Audio File</label>

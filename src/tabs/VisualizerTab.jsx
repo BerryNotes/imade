@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useGlobalAudio } from '../components/AudioProvider';
-import { useRanking } from '../hooks/useRanking';
 
 const MODES = [
   { id: 'bars', label: 'EQ' },
@@ -16,9 +15,11 @@ const MODES = [
 
 const MAX_PARTICLES = 1500;
 
-function VisualizerTab({ songs, comparisons, onFullscreen }) {
+function VisualizerTab({ songs, onFullscreen }) {
   const audio = useGlobalAudio();
-  const { playingSrc, isPlaying, getAnalyser, resumeAudioContext, toggle, pause, currentTime, duration, getWaveformBuffer } = audio;
+  // Store audio values in refs to avoid re-renders from context changes (currentTime fires ~4x/sec)
+  const audioRef = useRef(audio);
+  audioRef.current = audio;
   const canvasRef = useRef(null);
   const rafRef = useRef(null);
   const particlesRef = useRef([]);
@@ -40,9 +41,7 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
   const mouseTimerRef = useRef(null);
   const fxRef = useRef(false); // special effect toggle (Shift key)
 
-  const currentSong = playingSrc ? songs.find(s => s.audioFile === playingSrc) : null;
-  const ranking = useRanking(songs, comparisons || []);
-  const currentRank = currentSong ? ranking.standings.findIndex(s => s.id === currentSong.id) + 1 : 0;
+  const currentSong = audio.playingSrc ? songs.find(s => s.audioFile === audio.playingSrc) : null;
 
   // Number keys 1-9,0 switch visualizer mode; Shift toggles special effect
   useEffect(() => {
@@ -95,21 +94,12 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
   // Init analyser on first interaction / when playing
   const ensureAnalyser = useCallback(() => {
     if (analyserRef.current) return analyserRef.current;
-    const a = getAnalyser();
+    const a = audioRef.current.getAnalyser();
     if (a) analyserRef.current = a;
     return a;
-  }, [getAnalyser]);
-
-  useEffect(() => {
-    if (isPlaying) {
-      resumeAudioContext();
-      ensureAnalyser();
-    }
-  }, [isPlaying, resumeAudioContext, ensureAnalyser]);
+  }, []);
 
   const sphereTimeRef = useRef(0);
-  const isPlayingRef = useRef(false);
-  const playingSrcRef = useRef(null);
   const prevDimsRef = useRef({ w: 0, h: 0 });
   const vizTimeRef = useRef(0);       // accumulated viz time (pauses when song pauses)
   const lastRealTimeRef = useRef(0);  // last real timestamp we drew a frame
@@ -123,25 +113,38 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
   const lastFreqDataRef = useRef(null);  // cached freq data for freeze frame
   const lastTimeDataRef = useRef(null);  // cached time data for freeze frame
   const waveHistoryRef = useRef([]);     // ring buffer of past waveform snapshots for 3D wave
-  const currentTimeRef = useRef(0);
-  const durationRef = useRef(0);
-  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
-  useEffect(() => { playingSrcRef.current = playingSrc; }, [playingSrc]);
-  useEffect(() => { currentTimeRef.current = currentTime; }, [currentTime]);
-  useEffect(() => { durationRef.current = duration; }, [duration]);
+  const freqBufRef = useRef(null);       // reusable freq data buffer
+  const timeBufRef = useRef(null);       // reusable time data buffer
+  const bgFreqBufRef = useRef(null);     // reusable buffer for background gradient
+  // Init analyser when playback starts
+  useEffect(() => {
+    if (audio.isPlaying) {
+      try {
+        audioRef.current.resumeAudioContext();
+        ensureAnalyser();
+      } catch (e) {
+        console.warn('[Visualizer] analyser init failed:', e);
+      }
+    }
+  }, [audio.isPlaying, ensureAnalyser]);
 
   // Animation loop — always runs so visualizations can linger after song ends
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
+    if (!ctx) return;
     let running = true;
+    let cssW = 0, cssH = 0; // cached CSS dimensions — updated on resize only
 
     const resize = () => {
       const dpr = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
+      cssW = rect.width;
+      cssH = rect.height;
+      if (cssW === 0 || cssH === 0) return;
+      canvas.width = cssW * dpr;
+      canvas.height = cssH * dpr;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     resize();
@@ -150,13 +153,29 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     const fsResize = () => setTimeout(resize, 50);
     document.addEventListener('fullscreenchange', fsResize);
 
+    let lastFrameTime = 0;
+    let errorCount = 0;
+    const FRAME_INTERVAL = 1000 / 30; // 30fps target
     const draw = () => {
-      if (!running) return;
-      const w = canvas.getBoundingClientRect().width;
-      const h = canvas.getBoundingClientRect().height;
+      if (!running || errorCount > 10) return; // stop loop if too many errors
+      rafRef.current = requestAnimationFrame(draw);
+      const now = performance.now();
+      if (now - lastFrameTime < FRAME_INTERVAL) return;
+      lastFrameTime = now;
+      try { drawInner(); errorCount = 0; } catch (e) { errorCount++; console.warn('[Visualizer] draw error:', e); }
+    };
+
+    const drawInner = () => {
+      const w = cssW;
+      const h = cssH;
+      if (w === 0 || h === 0) return;
+      // Read live audio state from ref (avoids stale closures)
+      const curAudio = audioRef.current;
+      const playingSrc = curAudio.playingSrc;
+      const isAudioPlaying = curAudio.isPlaying;
 
       // No song playing — clear canvas, no visualization
-      if (!playingSrcRef.current) {
+      if (!playingSrc) {
         ctx.clearRect(0, 0, w, h);
         particlesRef.current = [];
         orbitParticlesRef.current = [];
@@ -165,12 +184,11 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
         particleSpawnedRef.current = 0;
         prevSongRef.current = null;
         prevDimsRef.current = { w, h };
-        rafRef.current = requestAnimationFrame(draw);
         return;
       }
 
       // New song — old strip particles rise up and exit, new ones spawn fresh
-      if (playingSrcRef.current !== prevSongRef.current) {
+      if (playingSrc !== prevSongRef.current) {
         for (const p of particlesRef.current) { p.exiting = true; }
         particleSpawnedRef.current = 0;
         waveBufferRef.current = null;
@@ -178,12 +196,12 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
         spectroCanvasRef.current = null;
         spectroWriteRef.current = 0;
         waveHistoryRef.current = [];
-        prevSongRef.current = playingSrcRef.current;
+        prevSongRef.current = playingSrc;
       }
 
       // Track accumulated viz time (freezes when paused)
       let dt = 0;
-      if (isPlayingRef.current) {
+      if (isAudioPlaying) {
         const realNow = performance.now() / 1000;
         dt = lastRealTimeRef.current > 0 ? Math.min(realNow - lastRealTimeRef.current, 0.1) : 0.016;
         lastRealTimeRef.current = realNow;
@@ -217,63 +235,42 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
           laserCanvasRef.current = lc;
         }
         const lctx = lc.getContext('2d');
-        // Clear fully each frame — no trail/shadow aftereffect
         lctx.clearRect(0, 0, cw, ch);
-        // Draw onto trail canvas, then composite to main
         ctx.clearRect(0, 0, w, h);
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, w, h);
-        // Trail canvas will be drawn after laser draws onto it
       } else {
         ctx.clearRect(0, 0, w, h);
-
-        // Frequency-reactive purple background — low freq darkens, high freq lightens
-        const bgT = vizTimeRef.current;
-        const hue1 = 262 + Math.sin(bgT * 0.2) * 8;
-        const hue2 = 268 + Math.sin(bgT * 0.15 + 1) * 6;
-
-        // Compute low vs high frequency balance from analyser if available
-        let freqShift = 0; // -1 (all low) to +1 (all high)
-        const tmpAnalyser = analyserRef.current;
-        if (tmpAnalyser) {
-          const tmpBuf = new Uint8Array(tmpAnalyser.frequencyBinCount);
-          tmpAnalyser.getByteFrequencyData(tmpBuf);
-          const half = Math.floor(tmpBuf.length / 2);
-          let lowSum = 0, highSum = 0;
-          for (let i = 0; i < half; i++) lowSum += tmpBuf[i];
-          for (let i = half; i < tmpBuf.length; i++) highSum += tmpBuf[i];
-          const lowAvg = lowSum / half / 255;
-          const highAvg = highSum / (tmpBuf.length - half) / 255;
-          freqShift = (highAvg - lowAvg); // roughly -1 to +1
-        }
-        const baseLightCenter = 11 + freqShift * 6;  // 5-17%
-        const baseLightMid = 7 + freqShift * 4;      // 3-11%
-        const baseLightEdge = 5 + freqShift * 3;     // 2-8%
-
-        const bgGrad = ctx.createRadialGradient(w * 0.3, h * 0.3, 0, w * 0.5, h * 0.5, Math.max(w, h) * 0.8);
-        bgGrad.addColorStop(0, `hsla(${hue1}, 28%, ${baseLightCenter}%, 1)`);
-        bgGrad.addColorStop(0.5, `hsla(${hue2}, 22%, ${baseLightMid}%, 1)`);
-        bgGrad.addColorStop(1, `hsla(${hue1 + 5}, 18%, ${baseLightEdge}%, 1)`);
-        ctx.fillStyle = bgGrad;
+        // Simple dark background — no per-frame gradient creation
+        ctx.fillStyle = '#0f0d1a';
         ctx.fillRect(0, 0, w, h);
       }
 
       // Ensure analyser is connected — may not exist yet if tab opened mid-song
       if (!analyserRef.current) {
-        resumeAudioContext();
-        ensureAnalyser();
+        try {
+          curAudio.resumeAudioContext();
+          ensureAnalyser();
+        } catch (e) { /* retry next frame */ }
       }
       const analyser = analyserRef.current;
-      if (!analyser) {
-        rafRef.current = requestAnimationFrame(draw);
-        return;
-      }
+      if (!analyser) return;
+
+      // Use high-res FFT only for spectrograph; keep small for other modes
+      const desiredFft = mode === 'spectrograph' ? 8192 : 512;
+      if (analyser.fftSize !== desiredFft) analyser.fftSize = desiredFft;
 
       const bufLen = analyser.frequencyBinCount;
       let freqData, timeData;
-      if (isPlayingRef.current) {
-        freqData = new Uint8Array(bufLen);
-        timeData = new Uint8Array(analyser.fftSize);
+      if (isAudioPlaying) {
+        if (!freqBufRef.current || freqBufRef.current.length !== bufLen) {
+          freqBufRef.current = new Uint8Array(bufLen);
+        }
+        if (!timeBufRef.current || timeBufRef.current.length !== analyser.fftSize) {
+          timeBufRef.current = new Uint8Array(analyser.fftSize);
+        }
+        freqData = freqBufRef.current;
+        timeData = timeBufRef.current;
         analyser.getByteFrequencyData(freqData);
         analyser.getByteTimeDomainData(timeData);
         lastFreqDataRef.current = freqData;
@@ -295,8 +292,6 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
       else if (mode === 'sphere') drawSphere(ctx, w, h, freqData);
       else if (mode === 'grid') drawGrid(ctx, w, h, freqData, vizTimeRef.current);
       else if (mode === 'laser') drawLaser(ctx, w, h, timeData, freqData, vizTimeRef.current);
-
-      rafRef.current = requestAnimationFrame(draw);
     };
 
     rafRef.current = requestAnimationFrame(draw);
@@ -332,8 +327,6 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     // FX: subtle color shifting — hue slowly cycles and reacts to frequency
     const colorShift = fxRef.current;
 
-    ctx.shadowColor = 'rgba(129,140,248,0.35)';
-    ctx.shadowBlur = 16;
     for (let i = 0; i < barCount; i++) {
       const val = vals[i];
       const barH = val * h * 0.85;
@@ -341,25 +334,15 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
       const pct = i / barCount;
 
       if (colorShift) {
-        // Hue cycles slowly over time, each bar offset by position
         const hue = (t * 25 + pct * 120 + val * 60) % 360;
         const sat = 65 + val * 20;
         const light = 50 + val * 15;
-        const grad = ctx.createLinearGradient(x, h, x, h - barH);
-        grad.addColorStop(0, `hsla(${hue}, ${sat}%, ${light - 10}%, 0.9)`);
-        grad.addColorStop(1, `hsla(${hue + 20}, ${sat + 10}%, ${light + 10}%, 0.75)`);
-        ctx.fillStyle = grad;
+        ctx.fillStyle = `hsla(${hue}, ${sat}%, ${light}%, 0.85)`;
       } else {
         const rC = Math.floor(80 + pct * 120);
         const gC = Math.floor(60 + pct * 130);
         const bC = Math.floor(200 + pct * 55);
-        const topR = Math.min(255, rC + 40);
-        const topG = Math.min(255, gC + 50);
-        const topB = Math.min(255, bC + 20);
-        const grad = ctx.createLinearGradient(x, h, x, h - barH);
-        grad.addColorStop(0, `rgba(${rC},${gC},${bC},0.9)`);
-        grad.addColorStop(1, `rgba(${topR},${topG},${topB},0.7)`);
-        ctx.fillStyle = grad;
+        ctx.fillStyle = `rgba(${rC},${gC},${bC},0.85)`;
       }
 
       const r = Math.min(barW / 2, 6);
@@ -373,7 +356,6 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
       ctx.closePath();
       ctx.fill();
     }
-    ctx.shadowBlur = 0;
   };
 
   const drawRadial = (ctx, w, h, data) => {
@@ -391,8 +373,6 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     ctx.fillStyle = 'rgba(26,21,53,0.4)';
     ctx.fill();
 
-    ctx.shadowColor = 'rgba(129,140,248,0.25)';
-    ctx.shadowBlur = 10;
     const lineW = Math.max(2, (Math.PI * 2 * innerR / barCount) * 0.7);
     for (let i = 0; i < barCount; i++) {
       const center = Math.floor(i * maxBin / barCount);
@@ -416,7 +396,6 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
       ctx.lineTo(cx + Math.cos(angle) * (innerR + barLen), cy + Math.sin(angle) * (innerR + barLen));
       ctx.stroke();
     }
-    ctx.shadowBlur = 0;
     ctx.lineCap = 'butt';
   };
 
@@ -487,24 +466,12 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     // Sort by depth — draw far bars first
     bars.sort((a, b) => a.base.z - b.base.z);
 
-    // Subtle sphere glow
     let sum = 0;
     for (let i = 0; i < data.length; i++) sum += data[i];
     const avg = sum / data.length / 255;
-    const glowR = sphereR * (1.1 + avg * 0.3);
-    const glow = ctx.createRadialGradient(cx, cy, sphereR * 0.1, cx, cy, glowR);
-    glow.addColorStop(0, `rgba(99,102,241,${0.08 + avg * 0.1})`);
-    glow.addColorStop(0.7, `rgba(129,140,248,${0.03 + avg * 0.04})`);
-    glow.addColorStop(1, 'rgba(67,56,202,0)');
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(cx, cy, glowR, 0, Math.PI * 2);
-    ctx.fill();
 
     // Draw frequency bars extending from sphere surface
     ctx.lineCap = 'round';
-    ctx.shadowColor = 'rgba(129,140,248,0.2)';
-    ctx.shadowBlur = 8;
     for (const b of bars) {
       const depth = (b.base.z + sphereR) / (2 * sphereR); // 0=far, 1=near
       const alpha = 0.15 + depth * 0.55 + b.val * 0.3;
@@ -517,7 +484,6 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
       ctx.lineTo(b.tip.x, b.tip.y);
       ctx.stroke();
     }
-    ctx.shadowBlur = 0;
     ctx.lineCap = 'butt';
   };
 
@@ -537,7 +503,7 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
       const planeD = planeW * 1.6;
 
       const history = waveHistoryRef.current;
-      if (isPlayingRef.current) {
+      if (audioRef.current.isPlaying) {
         const snapshot = [];
         for (let c = 0; c <= cols; c++) {
           const idx = Math.floor((c / cols) * (timeData.length - 1));
@@ -605,8 +571,6 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
       ctx.lineWidth = 5;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
-      ctx.shadowColor = 'rgba(129,140,248,0.3)';
-      ctx.shadowBlur = 12;
       ctx.stroke();
 
       // Bright core
@@ -619,7 +583,6 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
       }
       ctx.strokeStyle = 'rgba(129,140,248,0.6)';
       ctx.lineWidth = 2;
-      ctx.shadowBlur = 0;
       ctx.stroke();
     }
   };
@@ -631,14 +594,19 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     const cw = Math.round(w * dpr);
     const ch = Math.round(h * dpr);
 
-    // Init or resize offscreen spectrograph canvas
+    // Init or resize offscreen spectrograph canvas — preserve history on resize
     let sc = spectroCanvasRef.current;
     if (!sc || sc.width !== cw || sc.height !== ch) {
-      sc = document.createElement('canvas');
-      sc.width = cw;
-      sc.height = ch;
+      const newSc = document.createElement('canvas');
+      newSc.width = cw;
+      newSc.height = ch;
+      if (sc && sc.width > 0 && sc.height > 0) {
+        // Scale old history onto the new canvas so it isn't lost
+        const nctx = newSc.getContext('2d');
+        nctx.drawImage(sc, 0, 0, sc.width, sc.height, 0, 0, cw, ch);
+      }
+      sc = newSc;
       spectroCanvasRef.current = sc;
-      spectroWriteRef.current = 0;
     }
     const sctx = sc.getContext('2d');
 
@@ -981,9 +949,6 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     });
     sorted.sort((a, b) => a.z - b.z);
 
-    // Draw with glow
-    ctx.shadowColor = 'rgba(129,140,248,0.2)';
-    ctx.shadowBlur = 6;
     for (const { idx } of sorted) {
       const p = particles[idx];
       const proj = project3D(p.ringAngle, ringR, p.ring || 0);
@@ -1003,7 +968,6 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
       }
       ctx.fill();
     }
-    ctx.shadowBlur = 0;
   };
 
   const drawGrid = (ctx, w, h, data, now) => {
@@ -1141,18 +1105,13 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
         const pulseGlow = Math.max(0, 1 - pulseDist / 60) * bass * 2;
         const size = 2 + boostedVol * 4.5 + displacement * 2 + pulseGlow * 3;
         const alpha = Math.min(1, 0.3 + boostedVol * 0.5 + displacement * 0.2 + pulseGlow * 0.4);
-        ctx.shadowColor = `hsla(${hue}, 80%, 60%, ${(0.2 + pulseGlow * 0.5).toFixed(2)})`;
-        ctx.shadowBlur = 6 + pulseGlow * 12;
         ctx.beginPath();
         ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
         ctx.fillStyle = `hsla(${hue}, 70%, ${55 + pulseGlow * 20}%, ${alpha.toFixed(2)})`;
         ctx.fill();
       }
-      ctx.shadowBlur = 0;
     } else {
       // Default: dots only — no connecting lines
-      ctx.shadowColor = `rgba(129,140,248,${(0.1 + boostedVol * 0.25).toFixed(2)})`;
-      ctx.shadowBlur = 4 + boostedVol * 6;
       for (let i = 0; i < grid.length; i++) {
         const p = grid[i];
         const dx = p.x - p.homeX, dy = p.y - p.homeY;
@@ -1164,7 +1123,6 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
         ctx.fillStyle = `rgba(129,140,248,${Math.min(1, alpha).toFixed(2)})`;
         ctx.fill();
       }
-      ctx.shadowBlur = 0;
     }
   };
 
@@ -1247,23 +1205,18 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     lctx.lineWidth = 6 + amp * 4;
     lctx.lineCap = 'round';
     lctx.lineJoin = 'round';
-    lctx.shadowColor = `hsla(${laserHue}, 90%, 65%, ${brightness * 0.5})`;
-    lctx.shadowBlur = 20 + amp * 15;
     lctx.stroke();
 
     // Mid glow
     drawSmooth();
     lctx.strokeStyle = `hsla(${laserHue - 5}, 80%, 70%, ${brightness * 0.6})`;
     lctx.lineWidth = 2.5 + amp * 2;
-    lctx.shadowBlur = 8 + amp * 8;
     lctx.stroke();
 
     // Bright core
     drawSmooth();
     lctx.strokeStyle = `hsla(${laserHue + 10}, 40%, 92%, ${brightness * 0.9})`;
     lctx.lineWidth = 1 + amp * 0.8;
-    lctx.shadowColor = `hsla(${laserHue}, 70%, 85%, ${brightness})`;
-    lctx.shadowBlur = 4;
     lctx.stroke();
 
     // Draw bright dot at the "head" of the laser
@@ -1272,11 +1225,7 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     lctx.beginPath();
     lctx.arc(head.x, head.y, 2 + amp * 3, 0, Math.PI * 2);
     lctx.fillStyle = `hsla(${laserHue + 10}, 30%, 95%, ${brightness})`;
-    lctx.shadowColor = `hsla(${laserHue}, 80%, 75%, 1)`;
-    lctx.shadowBlur = 15 + amp * 10;
     lctx.fill();
-
-    lctx.shadowBlur = 0;
 
     // Grid echo copies — toggled with Shift key
     if (fxRef.current) {
@@ -1300,10 +1249,6 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
         const ly = cy + oy + (pts[pts.length - 1].y - cy) * sc;
         lctx.quadraticCurveTo(lx, ly, p0x, p0y);
       };
-
-      // No shadowBlur on copies — too expensive per-frame
-      lctx.shadowColor = 'transparent';
-      lctx.shadowBlur = 0;
 
       for (let gx = -2; gx <= 2; gx++) {
         for (let gy = -2; gy <= 2; gy++) {
@@ -1339,10 +1284,7 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
       lctx.beginPath();
       lctx.arc(cx, cy, 3, 0, Math.PI * 2);
       lctx.fillStyle = `hsla(${laserHue}, 80%, 75%, 0.8)`;
-      lctx.shadowColor = `hsla(${laserHue}, 90%, 65%, 0.6)`;
-      lctx.shadowBlur = 12;
       lctx.fill();
-      lctx.shadowBlur = 0;
       lctx.restore();
     }
 
@@ -1368,15 +1310,10 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
     for (let i = 0; i < data.length; i++) sum += data[i];
     const avg = sum / data.length / 255;
 
-    // Sphere glow
-    const glowR = baseR * (1.1 + avg * 0.3);
-    const glow = ctx.createRadialGradient(cx, cy, baseR * 0.2, cx, cy, glowR);
-    glow.addColorStop(0, `rgba(99,102,241,${0.12 + avg * 0.15})`);
-    glow.addColorStop(0.6, `rgba(129,140,248,${0.04 + avg * 0.06})`);
-    glow.addColorStop(1, 'rgba(67,56,202,0)');
-    ctx.fillStyle = glow;
+    // Sphere glow — simple circle, no gradient
     ctx.beginPath();
-    ctx.arc(cx, cy, glowR, 0, Math.PI * 2);
+    ctx.arc(cx, cy, baseR * (1.1 + avg * 0.3), 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(99,102,241,${(0.06 + avg * 0.08).toFixed(2)})`;
     ctx.fill();
 
     // 3D rotation helper: rotate around X (FX only) then Y then Z
@@ -1561,15 +1498,16 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
         background: isFullscreen ? 'radial-gradient(ellipse at 20% 0%,#2d1f6e 0%,#1a1535 50%,#13102a 100%)' : 'transparent',
         borderRadius: isFullscreen ? 0 : 12,
         overflow: 'hidden',
-        cursor: mouseActive ? (playingSrc ? 'pointer' : 'default') : 'none',
+        cursor: mouseActive ? (audio.playingSrc ? 'pointer' : 'default') : 'none',
       }}>
       {/* Full-bleed canvas */}
       <canvas
         ref={canvasRef}
         onClick={() => {
-          resumeAudioContext();
+          audioRef.current.resumeAudioContext();
           ensureAnalyser();
-          if (playingSrc) toggle(playingSrc);
+          const src = audioRef.current.playingSrc;
+          if (src) audioRef.current.toggle(src);
         }}
         onMouseMove={(e) => {
           const rect = canvasRef.current?.getBoundingClientRect();
@@ -1579,33 +1517,30 @@ function VisualizerTab({ songs, comparisons, onFullscreen }) {
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', cursor: 'inherit' }}
       />
 
+      {/* No audio notice */}
+      {!audio.playingSrc && (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 5, pointerEvents: 'none' }}>
+          <div style={{ textAlign: 'center', opacity: 0.5 }}>
+            <div style={{ fontSize: 28, marginBottom: 8, color: '#818cf8' }}>♪</div>
+            <div style={{ fontSize: 13, color: '#6b7280' }}>Play a song to see visualizations</div>
+          </div>
+        </div>
+      )}
+
       {/* Song info overlay — top-left, auto-hide */}
       {currentSong && (
         <div style={{ position: 'absolute', top: 12, left: 16, zIndex: 10, opacity: mouseActive ? 1 : 0, transition: 'opacity 0.3s ease', pointerEvents: 'none' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {currentRank > 0 && (
-              <span style={{
-                background: 'rgba(99,102,241,0.25)',
-                border: '1px solid rgba(129,140,248,0.3)',
-                borderRadius: 8,
-                padding: '4px 10px',
-                fontSize: 13,
-                fontWeight: 700,
-                color: '#818cf8',
-                fontVariantNumeric: 'tabular-nums',
-              }}>#{currentRank}</span>
-            )}
-            <span style={{
-              fontSize: 15,
-              fontWeight: 600,
-              color: '#e2e8f0',
-              textShadow: '0 2px 8px rgba(0,0,0,0.6)',
-              maxWidth: 360,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}>{currentSong.title}</span>
-          </div>
+          <span style={{
+            fontSize: 15,
+            fontWeight: 600,
+            color: '#e2e8f0',
+            textShadow: '0 2px 8px rgba(0,0,0,0.6)',
+            maxWidth: 360,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            display: 'block',
+          }}>{currentSong.title}</span>
         </div>
       )}
 

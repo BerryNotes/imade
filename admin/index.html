@@ -4,14 +4,34 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>iMade Admin</title>
+  <link rel="icon" href="/icon.ico">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a14; color: #c4c4d4; min-height: 100vh; }
+
+    /* Login screen */
+    .login-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .login-box { background: #0f0f1a; border: 1px solid #1e1e35; border-radius: 12px; padding: 32px; width: 360px; }
+    .login-box h1 { font-size: 20px; font-weight: 700; color: #e2e2f0; margin-bottom: 4px; }
+    .login-box p { font-size: 12px; color: #6b7280; margin-bottom: 20px; }
+    .login-box .field { margin-bottom: 14px; }
+    .login-box .field label { display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; margin-bottom: 4px; }
+    .login-box .field input { width: 100%; background: #0c0a1a; color: #e2e2f0; border: 1px solid #2a2a40; padding: 8px 12px; border-radius: 6px; font-size: 13px; outline: none; }
+    .login-box .field input:focus { border-color: #818cf8; }
+    .login-box .login-btn { width: 100%; background: #818cf8; color: #0f0f1a; border: none; padding: 10px; border-radius: 6px; font-size: 13px; font-weight: 700; cursor: pointer; margin-top: 4px; }
+    .login-box .login-btn:hover { opacity: 0.9; }
+    .login-box .login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .login-error { color: #ef4444; font-size: 12px; margin-top: 8px; }
+
+    /* Dashboard */
+    .dashboard { display: none; }
     .header { padding: 24px 32px; border-bottom: 1px solid #1e1e35; display: flex; align-items: center; justify-content: space-between; }
     .header h1 { font-size: 18px; font-weight: 700; color: #e2e2f0; letter-spacing: -0.02em; }
     .header .stats { font-size: 12px; color: #6b7280; }
-    .header a { font-size: 12px; color: #818cf8; text-decoration: none; }
-    .header a:hover { text-decoration: underline; }
+    .header .right { display: flex; align-items: center; gap: 16px; }
+    .header .server-url { font-size: 11px; color: #4b5563; font-family: monospace; }
+    .header .disconnect { font-size: 11px; color: #ef4444; cursor: pointer; background: none; border: none; }
+    .header .disconnect:hover { text-decoration: underline; }
     .content { max-width: 960px; margin: 0 auto; padding: 24px 20px; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th { text-align: left; padding: 10px 14px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; border-bottom: 1px solid #1e1e35; background: #0f0f1a; }
@@ -22,6 +42,16 @@
     tr.user-row:hover { background: #12121f; }
     tr.user-row.expanded { background: #1a1a2e; }
     .badge { display: inline-block; margin-left: 6px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #818cf8; background: rgba(129,140,248,0.12); padding: 2px 6px; border-radius: 4px; }
+    .badge-trial { color: #f59e0b; background: rgba(245,158,11,0.12); }
+    .badge-full { color: #22c55e; background: rgba(34,197,94,0.12); }
+    .plan-toggle { border: none; padding: 4px 10px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.04em; transition: opacity 0.15s; }
+    .plan-toggle:hover { opacity: 0.8; }
+    .plan-toggle-trial { background: rgba(245,158,11,0.15); color: #f59e0b; }
+    .plan-toggle-full { background: rgba(34,197,94,0.15); color: #22c55e; }
+    .role-toggle { border: none; padding: 4px 10px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.04em; transition: opacity 0.15s; }
+    .role-toggle:hover { opacity: 0.8; }
+    .role-toggle-user { background: rgba(107,114,128,0.15); color: #6b7280; }
+    .role-toggle-admin { background: rgba(129,140,248,0.15); color: #818cf8; }
     .actions { display: flex; gap: 6px; }
     .btn { border: none; padding: 5px 12px; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
     .btn:hover { opacity: 0.8; }
@@ -41,49 +71,193 @@
     .songs-panel table { font-size: 12px; }
     .songs-panel th { font-size: 9px; padding: 6px 12px; background: #0c0a1a; color: #4b5563; }
     .songs-panel td { padding: 5px 12px; font-size: 12px; color: #9ca3af; border-bottom: 1px solid #1a1a2e; }
+    .toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 12px; }
+    .btn-refresh { background: none; border: 1px solid #2a2a40; color: #6b7280; padding: 8px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+    .btn-refresh:hover { border-color: #818cf8; color: #818cf8; }
+    .btn-refresh.spinning svg { animation: spin 0.6s linear infinite; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .btn-add { background: #818cf8; color: #0f0f1a; border: none; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; }
+    .btn-add:hover { opacity: 0.9; }
+    .add-form-wrap { background: #0f0f1a; border: 1px solid #1e1e35; border-radius: 8px; padding: 20px; margin-bottom: 16px; display: none; }
+    .add-form-wrap.open { display: block; }
+    .add-form-wrap h3 { font-size: 13px; font-weight: 700; color: #e2e2f0; margin-bottom: 12px; }
+    .add-form { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+    .add-error { color: #ef4444; font-size: 12px; margin-top: 8px; }
     .loading { display: flex; align-items: center; justify-content: center; min-height: 200px; color: #6b7280; font-size: 13px; }
     .error { color: #ef4444; font-size: 13px; text-align: center; padding: 12px; }
     .empty { color: #6b7280; font-size: 12px; padding: 12px; }
     .table-wrap { border-radius: 8px; border: 1px solid #1e1e35; overflow: hidden; }
+    .save-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #1a1a2e; border-top: 1px solid #818cf8; padding: 12px 24px; display: flex; align-items: center; justify-content: flex-end; gap: 10px; z-index: 100; transform: translateY(100%); transition: transform 0.2s ease; }
+    .save-bar.visible { transform: translateY(0); }
+    .save-bar .save-msg { flex: 1; font-size: 12px; color: #818cf8; font-weight: 600; }
+    .save-bar .btn-bar-save { background: #818cf8; color: #0f0f1a; border: none; padding: 8px 20px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; }
+    .save-bar .btn-bar-save:hover { opacity: 0.9; }
+    .save-bar .btn-bar-cancel { background: none; color: #6b7280; border: 1px solid #2a2a40; padding: 8px 20px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; }
+    .save-bar .btn-bar-cancel:hover { border-color: #6b7280; color: #c4c4d4; }
+    .toggle-changed { outline: 2px solid #818cf8; outline-offset: 1px; }
   </style>
 </head>
 <body>
-  <div class="header">
-    <div>
+
+  <!-- Login Screen -->
+  <div class="login-screen" id="login-screen">
+    <div class="login-box">
       <h1>iMade Admin</h1>
-      <div class="stats" id="stats"></div>
+      <p>Connect to your iMade server.</p>
+      <div class="field">
+        <label>Server URL</label>
+        <input id="login-url" value="http://localhost:3000" placeholder="http://localhost:3000" />
+      </div>
+      <div class="field">
+        <label>Admin Token</label>
+        <input id="login-token" type="password" placeholder="Paste token from server console" />
+      </div>
+      <button class="login-btn" id="login-btn">Connect</button>
+      <div class="login-error" id="login-error"></div>
     </div>
-    <a href="/">&larr; Back to App</a>
   </div>
-  <div class="content">
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Username</th>
-            <th class="num">Songs</th>
-            <th class="num">Comparisons</th>
-            <th class="num">Playlists</th>
-            <th>Joined</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="user-table"></tbody>
-      </table>
+
+  <!-- Dashboard -->
+  <div class="dashboard" id="dashboard">
+    <div class="header">
+      <div>
+        <h1>iMade Admin</h1>
+        <div class="stats" id="stats"></div>
+      </div>
+      <div class="right">
+        <span class="server-url" id="server-url"></span>
+        <button class="disconnect" id="disconnect-btn">Disconnect</button>
+      </div>
+    </div>
+    <div class="content">
+      <div class="toolbar">
+        <button class="btn-refresh" id="refresh-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
+        <button class="btn-add" id="add-user-btn">+ Add User</button>
+      </div>
+      <div class="add-form-wrap" id="add-form-wrap">
+        <h3>Create New User</h3>
+        <div class="add-form">
+          <div class="field"><label>Username</label><input id="add-username" placeholder="min 2 characters" /></div>
+          <div class="field"><label>Password</label><input id="add-password" type="password" placeholder="min 4 characters" /></div>
+          <button class="btn btn-save" id="add-save-btn">Create</button>
+          <button class="btn btn-cancel" id="add-cancel-btn">Cancel</button>
+        </div>
+        <div class="add-error" id="add-error"></div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Username</th>
+              <th>Plan</th>
+              <th>Role</th>
+              <th class="num">Songs</th>
+              <th class="num">Comparisons</th>
+              <th class="num">Playlists</th>
+              <th>Joined</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="user-table"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="save-bar" id="save-bar">
+      <span class="save-msg" id="save-msg"></span>
+      <button class="btn-bar-cancel" id="bar-cancel-btn">Cancel</button>
+      <button class="btn-bar-save" id="bar-save-btn">Save Changes</button>
     </div>
   </div>
 
   <script>
-    const API = window.location.origin;
+    let API = '';
+    let TOKEN = '';
     let users = [];
     let expandedUser = null;
     let editingUser = null;
     let confirmingDelete = null;
     let songCache = {};
+    let pendingChanges = {}; // { userId: { plan?, role? } }
 
-    async function apiFetch(url, opts = {}) {
-      const r = await fetch(API + url, { credentials: 'include', ...opts });
+    // Auto-connect when served locally (same-origin, session auth)
+    const isLocal = location.pathname.startsWith('/admin');
+    if (isLocal) {
+      API = location.origin;
+      TOKEN = '__session__';
+      showDashboard();
+      loadUsers();
+    } else {
+      // Restore saved session (remote access)
+      const saved = sessionStorage.getItem('imade_admin');
+      if (saved) {
+        try {
+          const s = JSON.parse(saved);
+          API = s.url; TOKEN = s.token;
+          showDashboard();
+          loadUsers();
+        } catch {}
+      }
+    }
+
+    // Login
+    document.getElementById('login-btn').addEventListener('click', async () => {
+      const url = document.getElementById('login-url').value.trim().replace(/\/+$/, '');
+      const token = document.getElementById('login-token').value.trim();
+      const errEl = document.getElementById('login-error');
+      const btn = document.getElementById('login-btn');
+      errEl.textContent = '';
+      if (!url || !token) { errEl.textContent = 'Both fields are required.'; return; }
+
+      btn.disabled = true;
+      btn.textContent = 'Connecting...';
+      try {
+        const r = await fetch(url + '/api/admin/verify', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + token },
+        });
+        if (!r.ok) throw new Error('Invalid token or server unreachable');
+        API = url; TOKEN = token;
+        sessionStorage.setItem('imade_admin', JSON.stringify({ url, token }));
+        showDashboard();
+        loadUsers();
+      } catch (e) {
+        errEl.textContent = e.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Connect';
+      }
+    });
+
+    // Enter key on token field
+    document.getElementById('login-token').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('login-btn').click();
+    });
+
+    // Disconnect
+    document.getElementById('disconnect-btn').addEventListener('click', () => {
+      sessionStorage.removeItem('imade_admin');
+      API = ''; TOKEN = '';
+      users = []; songCache = {}; expandedUser = null; editingUser = null; confirmingDelete = null;
+      document.getElementById('login-screen').style.display = 'flex';
+      document.getElementById('dashboard').style.display = 'none';
+    });
+
+    function showDashboard() {
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('dashboard').style.display = 'block';
+      document.getElementById('server-url').textContent = API;
+    }
+
+    async function apiFetch(path, opts = {}) {
+      const headers = { ...(opts.headers || {}) };
+      if (TOKEN && TOKEN !== '__session__') headers['Authorization'] = 'Bearer ' + TOKEN;
+      const r = await fetch(API + path, { ...opts, headers, credentials: 'same-origin' });
+      if (r.status === 403) {
+        sessionStorage.removeItem('imade_admin');
+        location.reload();
+        throw new Error('Session expired');
+      }
       if (!r.ok) {
         const text = await r.text();
         let msg; try { msg = JSON.parse(text).error; } catch {}
@@ -98,7 +272,7 @@
         render();
       } catch (e) {
         document.getElementById('user-table').innerHTML =
-          `<tr><td colspan="7" class="error">${esc(e.message)}</td></tr>`;
+          `<tr><td colspan="9" class="error">${esc(e.message)}</td></tr>`;
       }
     }
 
@@ -127,21 +301,29 @@
         const isEditing = editingUser === u.id;
         const isConfirming = confirmingDelete === u.id;
 
+        const pending = pendingChanges[u.id] || {};
+        const plan = pending.plan !== undefined ? pending.plan : (u.plan || 'trial');
+        const role = pending.role !== undefined ? pending.role : (u.role || 'user');
+        const planChanged = pending.plan !== undefined;
+        const roleChanged = pending.role !== undefined;
+        const planClass = plan === 'full' ? 'plan-toggle-full' : 'plan-toggle-trial';
         html += `<tr class="user-row ${isExpanded ? 'expanded' : ''}" data-expand="${u.id}">
           <td>${u.id}</td>
-          <td><strong>${esc(u.username)}</strong>${u.id === 1 ? '<span class="badge">admin</span>' : ''}</td>
+          <td><strong>${esc(u.username)}</strong>${role === 'admin' ? '<span class="badge">admin</span>' : ''}</td>
+          <td><button class="plan-toggle ${planClass}${planChanged ? ' toggle-changed' : ''}" data-toggle-plan="${u.id}" data-current-plan="${plan}">${plan === 'full' ? 'Full' : 'Trial'}</button></td>
+          <td>${u.id === 1 ? '<span class="role-toggle role-toggle-admin" style="cursor:default;opacity:0.5">Admin</span>' : `<button class="role-toggle ${role === 'admin' ? 'role-toggle-admin' : 'role-toggle-user'}${roleChanged ? ' toggle-changed' : ''}" data-toggle-role="${u.id}" data-current-role="${role}">${role === 'admin' ? 'Admin' : 'User'}</button>`}</td>
           <td class="num">${u.song_count}</td>
           <td class="num">${u.comparison_count}</td>
           <td class="num">${u.playlist_count}</td>
           <td>${formatDate(u.created_at)}</td>
-          <td>${u.id !== 1 ? `<div class="actions">
+          <td><div class="actions">
             <button class="btn btn-edit" data-edit="${u.id}">Edit</button>
-            <button class="btn btn-delete" data-confirm="${u.id}">Delete</button>
-          </div>` : ''}</td>
+            ${u.id !== 1 ? `<button class="btn btn-delete" data-confirm="${u.id}">Delete</button>` : ''}
+          </div></td>
         </tr>`;
 
         if (isEditing) {
-          html += `<tr class="edit-row"><td colspan="7">
+          html += `<tr class="edit-row"><td colspan="9">
             <div class="edit-form">
               <div class="field"><label>Username</label><input id="edit-username" value="${esc(u.username)}" /></div>
               <div class="field"><label>Password</label><input id="edit-password" type="password" placeholder="Leave empty to keep" /></div>
@@ -152,7 +334,7 @@
         }
 
         if (isConfirming) {
-          html += `<tr class="confirm-row"><td colspan="7">
+          html += `<tr class="confirm-row"><td colspan="9">
             <div style="display:flex;align-items:center;gap:12px">
               <span class="confirm-msg">Delete <strong>${esc(u.username)}</strong> and all their data? This cannot be undone.</span>
               <button class="btn btn-delete" data-do-delete="${u.id}">Confirm Delete</button>
@@ -163,7 +345,7 @@
 
         if (isExpanded) {
           const songs = songCache[u.id];
-          html += `<tr><td colspan="7" style="padding:0;border-top:none">
+          html += `<tr><td colspan="9" style="padding:0;border-top:none">
             <div class="songs-panel">`;
           if (!songs) {
             html += `<div class="loading">Loading songs...</div>`;
@@ -193,12 +375,26 @@
       }
 
       tbody.innerHTML = html;
+
+      // Update save bar visibility
+      const changeCount = Object.keys(pendingChanges).length;
+      const bar = document.getElementById('save-bar');
+      const msg = document.getElementById('save-msg');
+      if (changeCount > 0) {
+        const names = Object.keys(pendingChanges).map(id => {
+          const u = users.find(u => u.id === parseInt(id));
+          return u ? u.username : 'user';
+        });
+        msg.textContent = `Unsaved changes for ${names.join(', ')}`;
+        bar.classList.add('visible');
+      } else {
+        bar.classList.remove('visible');
+      }
     }
 
     document.addEventListener('click', async (e) => {
       const t = e.target;
 
-      // Expand/collapse user row
       const expandRow = t.closest('[data-expand]');
       if (expandRow && !t.closest('.actions') && !t.closest('.edit-row') && !t.closest('.confirm-row') && !t.closest('button')) {
         const id = parseInt(expandRow.dataset.expand);
@@ -208,24 +404,20 @@
           expandedUser = id;
           if (!songCache[id]) {
             render();
-            try {
-              songCache[id] = await apiFetch(`/api/admin/users/${id}/songs`);
-            } catch { songCache[id] = []; }
+            try { songCache[id] = await apiFetch(`/api/admin/users/${id}/songs`); }
+            catch { songCache[id] = []; }
           }
         }
         render();
         return;
       }
 
-      // Edit button
       if (t.dataset.edit) {
         editingUser = parseInt(t.dataset.edit);
         confirmingDelete = null;
-        render();
-        return;
+        render(); return;
       }
 
-      // Save edit
       if (t.dataset.save) {
         const id = parseInt(t.dataset.save);
         const username = document.getElementById('edit-username')?.value.trim();
@@ -246,20 +438,14 @@
         return;
       }
 
-      // Cancel edit
-      if (t.dataset.cancelEdit !== undefined) {
-        editingUser = null; render(); return;
-      }
+      if (t.dataset.cancelEdit !== undefined) { editingUser = null; render(); return; }
 
-      // Delete confirmation
       if (t.dataset.confirm) {
         confirmingDelete = parseInt(t.dataset.confirm);
         editingUser = null;
-        render();
-        return;
+        render(); return;
       }
 
-      // Do delete
       if (t.dataset.doDelete) {
         const id = parseInt(t.dataset.doDelete);
         try {
@@ -272,13 +458,101 @@
         return;
       }
 
-      // Cancel delete
-      if (t.dataset.cancelDelete !== undefined) {
-        confirmingDelete = null; render(); return;
+      if (t.dataset.cancelDelete !== undefined) { confirmingDelete = null; render(); return; }
+
+      if (t.dataset.togglePlan) {
+        const id = parseInt(t.dataset.togglePlan);
+        const current = t.dataset.currentPlan || 'trial';
+        const newPlan = current === 'trial' ? 'full' : 'trial';
+        const orig = users.find(u => u.id === id);
+        if (!pendingChanges[id]) pendingChanges[id] = {};
+        if (newPlan === (orig?.plan || 'trial')) { delete pendingChanges[id].plan; } else { pendingChanges[id].plan = newPlan; }
+        if (Object.keys(pendingChanges[id]).length === 0) delete pendingChanges[id];
+        render();
+        return;
+      }
+
+      if (t.dataset.toggleRole) {
+        const id = parseInt(t.dataset.toggleRole);
+        const current = t.dataset.currentRole || 'user';
+        const newRole = current === 'user' ? 'admin' : 'user';
+        const orig = users.find(u => u.id === id);
+        if (!pendingChanges[id]) pendingChanges[id] = {};
+        if (newRole === (orig?.role || 'user')) { delete pendingChanges[id].role; } else { pendingChanges[id].role = newRole; }
+        if (Object.keys(pendingChanges[id]).length === 0) delete pendingChanges[id];
+        render();
+        return;
       }
     });
 
-    loadUsers();
+    // Save bar — persist all pending changes
+    document.getElementById('bar-save-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('bar-save-btn');
+      btn.disabled = true; btn.textContent = 'Saving...';
+      try {
+        for (const [id, changes] of Object.entries(pendingChanges)) {
+          users = await apiFetch(`/api/admin/users/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(changes),
+          });
+        }
+        pendingChanges = {};
+        render();
+      } catch (e) { alert(e.message); }
+      btn.disabled = false; btn.textContent = 'Save Changes';
+    });
+
+    // Save bar — cancel all pending changes
+    document.getElementById('bar-cancel-btn').addEventListener('click', () => {
+      pendingChanges = {};
+      render();
+    });
+
+    // Refresh
+    document.getElementById('refresh-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('refresh-btn');
+      btn.classList.add('spinning');
+      songCache = {};
+      pendingChanges = {};
+      await loadUsers();
+      btn.classList.remove('spinning');
+    });
+
+    // Add User
+    document.getElementById('add-user-btn').addEventListener('click', () => {
+      const wrap = document.getElementById('add-form-wrap');
+      wrap.classList.toggle('open');
+      if (wrap.classList.contains('open')) document.getElementById('add-username').focus();
+      document.getElementById('add-error').textContent = '';
+    });
+    document.getElementById('add-cancel-btn').addEventListener('click', () => {
+      document.getElementById('add-form-wrap').classList.remove('open');
+      document.getElementById('add-username').value = '';
+      document.getElementById('add-password').value = '';
+      document.getElementById('add-error').textContent = '';
+    });
+    document.getElementById('add-save-btn').addEventListener('click', async () => {
+      const username = document.getElementById('add-username').value.trim();
+      const password = document.getElementById('add-password').value;
+      const errEl = document.getElementById('add-error');
+      errEl.textContent = '';
+      if (!username || !password) { errEl.textContent = 'Both fields are required.'; return; }
+      try {
+        users = await apiFetch('/api/admin/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        document.getElementById('add-form-wrap').classList.remove('open');
+        document.getElementById('add-username').value = '';
+        document.getElementById('add-password').value = '';
+        render();
+      } catch (e) { errEl.textContent = e.message; }
+    });
+    document.getElementById('add-password').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('add-save-btn').click();
+    });
   </script>
 </body>
 </html>

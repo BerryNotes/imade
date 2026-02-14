@@ -16,6 +16,9 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
   const [notesSong, setNotesSong] = useState(null);
   const [notesText, setNotesText] = useState("");
   const [notesSaving, setNotesSaving] = useState(false);
+  const [genreSong, setGenreSong] = useState(null);
+  const [genreValue, setGenreValue] = useState("");
+  const [genreSaving, setGenreSaving] = useState(false);
   const { play } = useGlobalAudio();
 
   const handleSave = async (fd, id) => {
@@ -31,6 +34,17 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
   }, [onRefresh, showToast]);
   const openEdit = useCallback((s) => { setEditingSong(s); setModalOpen(true); }, []);
   const openNotes = useCallback((s) => { setNotesSong(s); setNotesText(s.notes || ""); }, []);
+  const openGenre = useCallback((s) => { setGenreSong(s); setGenreValue(s.genre || ""); }, []);
+  const saveGenre = async () => {
+    if (!genreSong || genreSaving) return;
+    setGenreSaving(true);
+    try {
+      await api.patch("/api/songs/batch-genre", { ids: [genreSong.id], genre: genreValue });
+      setGenreSong(null);
+      await onRefresh();
+    } catch (e) { showToast("Failed to update genre"); }
+    setGenreSaving(false);
+  };
 
   const toggleSelect = useCallback((id) => {
     setSelectedIds(prev => {
@@ -177,6 +191,7 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
               <SongRow key={s.id} song={s}
                 onDelete={selectMode ? undefined : handleDelete}
                 onEdit={selectMode ? undefined : openEdit}
+                onChangeGenre={selectMode ? undefined : openGenre}
                 onNotes={selectMode ? undefined : openNotes}
                 selectable={selectMode}
                 selected={selectedIds.has(s.id)}
@@ -212,7 +227,7 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
       </div>
 
       <Modal open={modalOpen} onClose={()=>{setModalOpen(false);setEditingSong(null)}}>
-        <SongEditForm song={editingSong} genres={genres} onSave={handleSave} onCancel={()=>{setModalOpen(false);setEditingSong(null)}} />
+        <SongEditForm song={editingSong} onSave={handleSave} onCancel={()=>{setModalOpen(false);setEditingSong(null)}} />
       </Modal>
 
       <Modal open={!!notesSong} onClose={()=>setNotesSong(null)}>
@@ -254,6 +269,35 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
           </div>
         )}
       </Modal>
+      <Modal open={!!genreSong} onClose={()=>setGenreSong(null)}>
+        {genreSong && (
+          <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:300}}>
+            <h3 style={{color:"#e2e8f0",fontSize:16,fontWeight:600,margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{genreSong.title}</h3>
+            <div>
+              <label style={{color:"#6b7280",fontSize:11,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6,display:"block"}}>Genre</label>
+              <select value={genreValue} onChange={e=>setGenreValue(e.target.value)}
+                style={{width:"100%",background:"#12121f",border:"1px solid #2a2a45",borderRadius:10,padding:"12px 16px",color:"#e2e8f0",fontSize:15,outline:"none",cursor:"pointer",appearance:"none"}}>
+                <option value="">No genre</option>
+                {genres.map(g=><option key={g} value={g}>{g}</option>)}
+              </select>
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <button onClick={()=>setGenreSong(null)}
+                style={{background:"none",border:"1px solid #2a2a45",borderRadius:8,padding:"8px 16px",color:"#8a8aa0",fontSize:12,cursor:"pointer"}}
+                onMouseEnter={e=>e.target.style.borderColor="#4338ca"} onMouseLeave={e=>e.target.style.borderColor="#2a2a45"}>
+                Cancel
+              </button>
+              <button
+                disabled={genreSaving}
+                onClick={saveGenre}
+                style={{background:"linear-gradient(135deg,#4338ca,#6366f1)",border:"none",borderRadius:8,padding:"8px 20px",color:"#fff",fontSize:12,cursor:"pointer",fontWeight:600,opacity:genreSaving?0.6:1}}>
+                {genreSaving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       <ScrollToTop />
     </div>
   );

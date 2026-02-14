@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import AudioPlayer from './AudioPlayer';
 import GenreTag from './GenreTag';
 
-function SongRow({ song, onDelete, onEdit, onNotes, rank, showElo, showWinLoss: showWL, selectable, selected, onToggleSelect, listenTime, playlists, onAddToPlaylist, onAddToQueue, onPlayNext, compact }) {
+function SongRow({ song, onDelete, onEdit, onNotes, onChangeGenre, rank, showElo, showWinLoss: showWL, selectable, selected, onToggleSelect, listenTime, playlists, onAddToPlaylist, onAddToQueue, onPlayNext, compact }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [playlistSub, setPlaylistSub] = useState(false);
   const menuRef = useRef(null);
@@ -46,6 +46,12 @@ function SongRow({ song, onDelete, onEdit, onNotes, rank, showElo, showWinLoss: 
                   <button onClick={e=>{e.stopPropagation();setMenuOpen(false);onEdit(song)}} style={{...menuItemStyle,borderRadius:"10px 10px 0 0"}}
                     onMouseEnter={e=>e.currentTarget.style.background="#2a2a45"} onMouseLeave={e=>e.currentTarget.style.background="none"}>
                     <span style={{fontSize:13}}>✏️</span> Edit
+                  </button>
+                )}
+                {onChangeGenre && (
+                  <button onClick={e=>{e.stopPropagation();setMenuOpen(false);onChangeGenre(song)}} style={menuItemStyle}
+                    onMouseEnter={e=>e.currentTarget.style.background="#2a2a45"} onMouseLeave={e=>e.currentTarget.style.background="none"}>
+                    <span style={{fontSize:13}}>🏷️</span> Change Genre
                   </button>
                 )}
                 {onNotes && (

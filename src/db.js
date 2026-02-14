@@ -94,9 +94,17 @@ function initSchema(db) {
 }
 
 function migrateSchema(db) {
-  const cols = db.prepare("PRAGMA table_info(songs)").all().map(c => c.name);
-  if (!cols.includes("notes")) {
+  const songCols = db.prepare("PRAGMA table_info(songs)").all().map(c => c.name);
+  if (!songCols.includes("notes")) {
     db.exec("ALTER TABLE songs ADD COLUMN notes TEXT DEFAULT ''");
+  }
+  const userCols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+  if (!userCols.includes("plan")) {
+    db.exec("ALTER TABLE users ADD COLUMN plan TEXT DEFAULT 'trial'");
+  }
+  if (!userCols.includes("role")) {
+    db.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'");
+    db.exec("UPDATE users SET role = 'admin' WHERE id = 1");
   }
 }
 
@@ -108,18 +116,26 @@ function createUser(username, passwordHash) {
 }
 
 function getUserByUsername(username) {
-  return getDb().prepare("SELECT * FROM users WHERE username = ?").get(username);
+  return getDb().prepare("SELECT * FROM users WHERE LOWER(username) = LOWER(?)").get(username);
 }
 
 function getUserById(id) {
-  return getDb().prepare("SELECT id, username, created_at FROM users WHERE id = ?").get(id);
+  return getDb().prepare("SELECT id, username, plan, role, created_at FROM users WHERE id = ?").get(id);
+}
+
+function updateUserPlan(id, plan) {
+  return getDb().prepare("UPDATE users SET plan = ? WHERE id = ?").run(plan, id);
+}
+
+function updateUserRole(id, role) {
+  return getDb().prepare("UPDATE users SET role = ? WHERE id = ?").run(role, id);
 }
 
 // --- Admin helpers ---
 
 function getAllUsersWithStats() {
   return getDb().prepare(`
-    SELECT u.id, u.username, u.created_at,
+    SELECT u.id, u.username, u.plan, u.role, u.created_at,
       (SELECT COUNT(*) FROM songs WHERE user_id = u.id) AS song_count,
       (SELECT COUNT(*) FROM comparisons WHERE user_id = u.id) AS comparison_count,
       (SELECT COUNT(*) FROM playlists WHERE user_id = u.id) AS playlist_count
@@ -438,7 +454,7 @@ function bulkReplace(userId, data) {
 
 module.exports = {
   getDb,
-  createUser, getUserByUsername, getUserById,
+  createUser, getUserByUsername, getUserById, updateUserPlan, updateUserRole,
   getAllUsersWithStats, updateUserUsername, updateUserPassword, deleteUser,
   getSongs, getSongById, insertSong, updateSong, deleteSong, batchUpdateGenre, rowToSong,
   getComparisons, insertComparison, deleteLastComparison, deleteAllComparisons,

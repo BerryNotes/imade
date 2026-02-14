@@ -4,7 +4,7 @@ import api from '../api';
 
 function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToast, showVariance, setShowVariance,
   sessionLength, setSessionLength, bracketSize, setBracketSize, showWinLoss, setShowWinLoss,
-  rowDensity, setRowDensity, listenTimes, setListenTimes, listenTimesRef, user, onLogout }) {
+  rowDensity, setRowDensity, listenTimes, setListenTimes, listenTimesRef, user, setUser, onLogout }) {
   const [newGenre, setNewGenre] = useState("");
   const [editingGenre, setEditingGenre] = useState(null);
   const [editName, setEditName] = useState("");
@@ -19,6 +19,10 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
   const [deleting, setDeleting] = useState(false);
   const [showExportPlaylists, setShowExportPlaylists] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [editUsername, setEditUsername] = useState("");
+  const [editPassword, setEditPassword] = useState("");
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
   const ranking = useRanking(songs, comparisons);
 
   // Draft state — only committed to parent on Save
@@ -137,11 +141,88 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
     { id: "general", label: "General", icon: "⚙️" },
     { id: "genres", label: "Genres", icon: "🏷️" },
     { id: "data", label: "Data", icon: "💾" },
-    { id: "account", label: "Account", icon: "👤" },
   ];
 
   return (
     <div style={{maxWidth:600,margin:"0 auto"}}>
+      {/* Account */}
+      {user && (
+        <div style={{...sec,marginBottom:20}}>
+          {!editingProfile ? (
+            <div>
+              <div style={{display:"flex",alignItems:"center",gap:12,padding:"4px 0"}}>
+                <div style={{width:40,height:40,borderRadius:10,background:"linear-gradient(135deg,#4338ca,#6366f1)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:16,fontWeight:700}}>
+                  {user.username.charAt(0).toUpperCase()}
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{color:"#e2e8f0",fontSize:14,fontWeight:600}}>{user.username}</div>
+                  <div style={{color:"#6b6b80",fontSize:12}}>Logged in</div>
+                </div>
+                <button onClick={() => { setEditUsername(user.username); setEditPassword(""); setEditingProfile(true); }}
+                  style={{background:"none",border:"1px solid #2a2a45",borderRadius:8,padding:"7px 14px",color:"#8a8aa0",fontSize:12,cursor:"pointer"}}
+                  onMouseEnter={e=>e.target.style.color="#818cf8"} onMouseLeave={e=>e.target.style.color="#8a8aa0"}>
+                  edit
+                </button>
+                {onLogout && (
+                  <button onClick={onLogout}
+                    style={{background:"none",border:"1px solid #2a2a45",borderRadius:8,padding:"7px 14px",color:"#8a8aa0",fontSize:12,cursor:"pointer"}}
+                    onMouseEnter={e=>{e.target.style.color="#ef4444";e.target.style.borderColor="#5a2a2a"}}
+                    onMouseLeave={e=>{e.target.style.color="#8a8aa0";e.target.style.borderColor="#2a2a45"}}>
+                    sign out
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+                <div style={{width:40,height:40,borderRadius:10,background:"linear-gradient(135deg,#4338ca,#6366f1)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:16,fontWeight:700}}>
+                  {user.username.charAt(0).toUpperCase()}
+                </div>
+                <div style={{color:"#e2e8f0",fontSize:14,fontWeight:600}}>Edit Profile</div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:12,marginBottom:14}}>
+                <div>
+                  <div style={{color:"#6b6b80",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}}>Username</div>
+                  <input value={editUsername} onChange={e=>setEditUsername(e.target.value)}
+                    style={{width:"100%",background:"#0d0d1a",border:"1px solid #2a2a45",borderRadius:8,padding:"9px 12px",color:"#e2e8f0",fontSize:13,outline:"none"}}
+                    onFocus={e=>e.target.style.borderColor="#4338ca"} onBlur={e=>e.target.style.borderColor="#2a2a45"} />
+                </div>
+                <div>
+                  <div style={{color:"#6b6b80",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}}>New Password</div>
+                  <input value={editPassword} onChange={e=>setEditPassword(e.target.value)} type="password" placeholder="Leave empty to keep current"
+                    style={{width:"100%",background:"#0d0d1a",border:"1px solid #2a2a45",borderRadius:8,padding:"9px 12px",color:"#e2e8f0",fontSize:13,outline:"none"}}
+                    onFocus={e=>e.target.style.borderColor="#4338ca"} onBlur={e=>e.target.style.borderColor="#2a2a45"} />
+                </div>
+              </div>
+              <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                <button onClick={() => setEditingProfile(false)}
+                  style={{background:"none",border:"1px solid #2a2a45",borderRadius:8,padding:"8px 16px",color:"#8a8aa0",fontSize:12,cursor:"pointer"}}>
+                  cancel
+                </button>
+                <button disabled={profileSaving} onClick={async () => {
+                  const body = {};
+                  if (editUsername.trim() && editUsername.trim() !== user.username) body.username = editUsername.trim();
+                  if (editPassword) body.password = editPassword;
+                  if (Object.keys(body).length === 0) { setEditingProfile(false); return; }
+                  setProfileSaving(true);
+                  try {
+                    const data = await api.updateProfile(body);
+                    if (data.user) setUser(data.user);
+                    setEditingProfile(false);
+                    showToast("Profile updated");
+                  } catch (e) { showToast(e.message || "Failed to update profile"); }
+                  setProfileSaving(false);
+                }}
+                  style={{background:"linear-gradient(135deg,#4338ca,#6366f1)",border:"none",borderRadius:8,padding:"8px 16px",color:"#fff",fontSize:12,cursor:profileSaving?"default":"pointer",fontWeight:600,opacity:profileSaving?0.5:1}}>
+                  {profileSaving ? "saving..." : "save"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Tab bar */}
       <div style={{display:"flex",gap:4,marginBottom:20,background:"#0d0d1a",borderRadius:12,padding:4}}>
         {tabs.map(t => (
@@ -239,36 +320,6 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
               </div>
             ))}
             {genres.length === 0 && <span style={{color:"#6b6b80",fontSize:13}}>No genres yet</span>}
-          </div>
-        </div>
-      )}
-
-      {/* ===== ACCOUNT TAB ===== */}
-      {settingsTab === "account" && (
-        <div>
-          <div style={sec}>
-            <div style={secT}>👤 Account</div>
-            {user && (
-              <div style={{marginBottom:16}}>
-                <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0"}}>
-                  <div style={{width:40,height:40,borderRadius:10,background:"linear-gradient(135deg,#4338ca,#6366f1)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:16,fontWeight:700}}>
-                    {user.username.charAt(0).toUpperCase()}
-                  </div>
-                  <div>
-                    <div style={{color:"#e2e8f0",fontSize:14,fontWeight:600}}>{user.username}</div>
-                    <div style={{color:"#6b6b80",fontSize:12}}>Logged in</div>
-                  </div>
-                </div>
-              </div>
-            )}
-            {onLogout && (
-              <button onClick={onLogout}
-                style={{background:"none",border:"1px solid #2a2a45",borderRadius:10,padding:"10px 18px",color:"#8a8aa0",fontSize:13,cursor:"pointer"}}
-                onMouseEnter={e=>{e.target.style.color="#ef4444";e.target.style.borderColor="#5a2a2a"}}
-                onMouseLeave={e=>{e.target.style.color="#8a8aa0";e.target.style.borderColor="#2a2a45"}}>
-                Sign out
-              </button>
-            )}
           </div>
         </div>
       )}
