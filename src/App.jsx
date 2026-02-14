@@ -463,7 +463,7 @@ function App() {
 
       {/* Header */}
       <div ref={headerRef} style={{position:"sticky",top:isElectron?32:0,zIndex:20,background:"#13102a"}}>
-      <div style={{padding: uploading ? "80px 24px 0" : "32px 24px 0",maxWidth:1200,margin:"0 auto",transition:"padding 0.3s"}}>
+      <div style={{padding: uploading ? (window.innerWidth<640?"80px 8px 0":"80px 24px 0") : (window.innerWidth<640?"20px 8px 0":"32px 24px 0"),maxWidth:1200,margin:"0 auto",transition:"padding 0.3s"}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:0}}>
           <h1 style={{margin:0,fontSize:"clamp(28px,6vw,40px)",fontWeight:700,background:"linear-gradient(135deg,#e2e8f0,#818cf8)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",letterSpacing:"-0.02em",lineHeight:1.1}}>IMAde</h1>
           {user && (
@@ -583,7 +583,7 @@ function App() {
       )}
 
       {/* Content */}
-      <div style={{maxWidth:1200,margin:"0 auto",padding: tab === "visualizer" ? "0" : "20px 24px 40px"}}>
+      <div style={{maxWidth:1200,margin:"0 auto",padding: tab === "visualizer" ? "0" : window.innerWidth < 640 ? "12px 8px 40px" : "20px 24px 40px",overflowX:"hidden"}}>
         {/* BattleTab uses display:none/block to preserve session state */}
         <div style={{display: tab === "battle" ? "block" : "none"}}>
           {loaded && <BattleTab songs={songs} comparisons={comparisons} onRefresh={refresh} showToast={showToast} savedPair={battlePair} setSavedPair={setBattlePair}

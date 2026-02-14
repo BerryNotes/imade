@@ -7,6 +7,7 @@ function SongRow({ song, onDelete, onEdit, onNotes, onChangeGenre, rank, showElo
   const [playlistSub, setPlaylistSub] = useState(false);
   const menuRef = useRef(null);
   const fmtTime = (secs) => { if (!secs || secs < 60) return null; const m = Math.floor(secs / 60); return m + "m"; };
+  const narrow = typeof window !== 'undefined' && window.innerWidth < 640;
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -19,18 +20,18 @@ function SongRow({ song, onDelete, onEdit, onNotes, onChangeGenre, rank, showElo
   const manualPlaylists = (playlists || []).filter(pl => !pl.smart);
 
   return (
-    <div style={{background:"#14142a",border:"1px solid #1e1e35",borderRadius:compact?6:8,padding:compact?"4px 10px":"10px 14px",display:"flex",flexDirection:"column",gap:compact?2:6}}>
-      <div style={{display:"flex",alignItems:"center",gap:compact?6:8}}>
+    <div style={{background:"#14142a",border:"1px solid #1e1e35",borderRadius:compact?6:8,padding:compact?"4px 10px":narrow?"8px 10px":"10px 14px",display:"flex",flexDirection:"column",gap:compact?2:6,minWidth:0}}>
+      <div style={{display:"flex",alignItems:"center",gap:compact?6:narrow?6:8,minWidth:0}}>
         {selectable && (
           <input type="checkbox" checked={!!selected} onChange={()=>onToggleSelect(song.id)}
             style={{accentColor:"#818cf8",cursor:"pointer",flexShrink:0,width:compact?14:16,height:compact?14:16}} />
         )}
         {rank != null && <span style={{fontSize:compact?11:13,color:rank<=3?"#f59e0b":"#6b6b80",fontWeight:700,minWidth:compact?22:28,textAlign:"right"}}>{rank}</span>}
-        <span style={{flex:1,color:"#e2e8f0",fontSize:compact?12:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{song.title}</span>
+        <span style={{flex:1,color:"#e2e8f0",fontSize:compact?12:narrow?13:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0}}>{song.title}</span>
         {listenTime && fmtTime(listenTime) && <span style={{color:"#22c55e80",fontSize:9,flexShrink:0}}>♪{fmtTime(listenTime)}</span>}
         {song.notes && onNotes && <svg onClick={e=>{e.stopPropagation();onNotes(song)}} title="Has notes" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#818cf8" strokeWidth="1.5" strokeLinecap="round" style={{flexShrink:0,opacity:0.5,cursor:"pointer",transition:"opacity 0.15s"}} onMouseEnter={e=>e.currentTarget.style.opacity="1"} onMouseLeave={e=>e.currentTarget.style.opacity="0.5"}><path d="M3 2h7l3 3v9H3z"/><path d="M6 8h4M6 11h2"/></svg>}
         <GenreTag genre={song.genre} compact={compact} />
-        {!compact && <span style={{color:"#5a5a70",fontSize:11,flexShrink:0}}>{song.date}</span>}
+        {!compact && !narrow && <span style={{color:"#5a5a70",fontSize:11,flexShrink:0}}>{song.date}</span>}
         {showElo && song.elo != null && <span style={{color:"#818cf8",fontSize:11,fontWeight:600,flexShrink:0}}>{song.elo}</span>}
         {showElo && showWL !== false && song.elo != null && <span style={{color:"#5a5a70",fontSize:10,flexShrink:0}}>{song.wins}W {song.losses}L</span>}
         {(onEdit || onDelete) && !selectable && (
