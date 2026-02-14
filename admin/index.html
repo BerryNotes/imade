@@ -121,7 +121,7 @@
   <div class="dashboard" id="dashboard">
     <div class="header">
       <div>
-        <h1>iMade Admin</h1>
+        <h1>iMade Admin <span id="version-badge" style="font-size:11px;font-weight:600;color:#818cf8;background:rgba(129,140,248,0.12);padding:2px 8px;border-radius:4px;margin-left:8px;vertical-align:middle;display:none"></span></h1>
         <div class="stats" id="stats"></div>
       </div>
       <div class="right">
@@ -247,6 +247,14 @@
       document.getElementById('login-screen').style.display = 'none';
       document.getElementById('dashboard').style.display = 'block';
       document.getElementById('server-url').textContent = API;
+      // Fetch and display version
+      apiFetch('/api/update-check').then(d => {
+        if (d && d.current) {
+          const badge = document.getElementById('version-badge');
+          badge.textContent = 'v' + d.current;
+          badge.style.display = 'inline';
+        }
+      }).catch(() => {});
     }
 
     async function apiFetch(path, opts = {}) {
