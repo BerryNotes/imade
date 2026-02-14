@@ -94,6 +94,7 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
         comparisons: await api.get("/api/comparisons"),
         genres: await api.get("/api/genres"),
         playlists: await api.get("/api/playlists"),
+        listenTimes: await api.get("/api/listen-times"),
         exportedAt: new Date().toISOString(),
       };
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
