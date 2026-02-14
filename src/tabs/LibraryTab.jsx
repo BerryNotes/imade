@@ -7,7 +7,7 @@ import VirtualList from '../components/VirtualList';
 import SongEditForm from '../components/SongEditForm';
 import ScrollToTop from '../components/ScrollToTop';
 
-function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, selectMode, setSelectMode, selectedIds, setSelectedIds, batchGenre, setBatchGenre, stickyTop, listenTimes, setPlayerQueue, setPlayerQueueIdx, switchTab, playlists, showToast, rowDensity }) {
+function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, selectMode, setSelectMode, selectedIds, setSelectedIds, batchGenre, setBatchGenre, stickyTop, listenTimes, setPlayerQueue, setPlayerQueueIdx, switchTab, playlists, showToast, rowDensity, audioAvailable, onDeleteSong }) {
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("date-desc");
   const [editingSong, setEditingSong] = useState(null);
@@ -29,9 +29,11 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
     } catch (e) { showToast("Failed to save song"); }
   };
   const handleDelete = useCallback(async (id) => {
-    try { await api.del("/api/songs/"+id); onRefresh(); }
-    catch (e) { showToast("Failed to delete song"); }
-  }, [onRefresh, showToast]);
+    try {
+      if (onDeleteSong) await onDeleteSong(id);
+      else { await api.del("/api/songs/"+id); onRefresh(); }
+    } catch (e) { showToast("Failed to delete song"); }
+  }, [onRefresh, showToast, onDeleteSong]);
   const openEdit = useCallback((s) => { setEditingSong(s); setModalOpen(true); }, []);
   const openNotes = useCallback((s) => { setNotesSong(s); setNotesText(s.notes || ""); }, []);
   const openGenre = useCallback((s) => { setGenreSong(s); setGenreValue(s.genre || ""); }, []);
@@ -199,6 +201,7 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
                 listenTime={listenTimes[s.id]}
                 compact={rowDensity === "compact"}
                 playlists={playlists}
+                audioMissing={audioAvailable && !audioAvailable.has(s.id)}
                 onAddToPlaylist={async (songId, plId) => {
                   const pl = playlists.find(p => p.id === plId);
                   if (!pl) return;

@@ -6,7 +6,7 @@ import ScrollToTop from '../components/ScrollToTop';
 import { useRanking } from '../hooks/useRanking';
 import api from '../api';
 
-function RankingsTab({ songs, comparisons, onRefresh, showToast, lastUpdateCompCount, setLastUpdateCompCount, setPlayerQueue, setPlayerQueueIdx, switchTab, showVariance, showWinLoss, rowDensity, stickyTop }) {
+function RankingsTab({ songs, comparisons, onRefresh, showToast, lastUpdateCompCount, setLastUpdateCompCount, setPlayerQueue, setPlayerQueueIdx, switchTab, showVariance, showWinLoss, rowDensity, stickyTop, audioAvailable }) {
   const ranking = useRanking(songs, comparisons);
   const tournament = ranking;
   const [filterGenre, setFilterGenre] = useState("All");
@@ -201,7 +201,10 @@ function RankingsTab({ songs, comparisons, onRefresh, showToast, lastUpdateCompC
             <span style={{color:"#818cf8",fontSize:rowDensity==="compact"?10:11,fontWeight:600,flexShrink:0}}>{s.elo}{showVariance && s.eloMin !== s.eloMax && <span style={{color:"#5a5a70",fontSize:9,fontWeight:400}}> ±{Math.round((s.eloMax - s.eloMin) / 10)}</span>}</span>
             {showWinLoss && <span style={{color:"#5a5a70",fontSize:rowDensity==="compact"?9:10,flexShrink:0}}>{s.wins}W {s.losses}L</span>}
           </div>
-          {rowDensity !== "compact" && s.audioFile && <AudioPlayer src={s.audioFile} compact />}
+          {rowDensity !== "compact" && s.audioFile && (!audioAvailable || audioAvailable.has(s.id)) && <AudioPlayer src={s.audioFile} compact />}
+          {rowDensity !== "compact" && audioAvailable && !audioAvailable.has(s.id) && s.audioFile && (
+            <div style={{color:"#6b6b80",fontSize:11,fontStyle:"italic",padding:"4px 0"}}>audio not on this device</div>
+          )}
         </div>
       </div>
     );

@@ -237,6 +237,46 @@ app.get("/api/songs", auth, (req, res) => {
   res.json(songs);
 });
 
+app.post("/api/songs/bulk-meta", auth, (req, res) => {
+  const userId = req.session.userId;
+  const user = db.getUserById(userId);
+  const isTrial = (user?.plan || "trial") === "trial";
+  const existing = db.getSongs(userId);
+
+  if (isTrial) {
+    const remaining = TRIAL_SONG_LIMIT - existing.length;
+    if (remaining <= 0) return res.status(403).json({ error: `Song limit reached (${TRIAL_SONG_LIMIT}). Upgrade to add more songs.` });
+  }
+
+  const files = req.body.files;
+  if (!Array.isArray(files) || files.length === 0) return res.status(400).json({ error: "files array required" });
+
+  const maxFiles = isTrial ? TRIAL_SONG_LIMIT - existing.length : files.length;
+  const newSongs = [];
+  for (const file of files.slice(0, maxFiles)) {
+    const origName = file.name || "untitled";
+    const title = origName.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
+    const clientDate = file.lastModified;
+    const date = clientDate
+      ? new Date(parseInt(clientDate, 10)).toISOString().split("T")[0]
+      : new Date().toISOString().split("T")[0];
+
+    const song = {
+      id: Date.now().toString() + "-" + Math.round(Math.random() * 1e9),
+      title, date, genre: "",
+      audioFile: "idb:" + Date.now().toString() + "-" + Math.round(Math.random() * 1e9),
+      audioName: origName,
+    };
+    // Use the song's own id in the audioFile reference
+    song.audioFile = "idb:" + song.id;
+    db.insertSong(song, userId);
+    newSongs.push(song);
+  }
+
+  if (newSongs.length > 0) db.logActivity(userId, "song_bulk_meta", newSongs.length + " songs: " + newSongs.map(s => s.title).join(", "), req.ip);
+  res.json(newSongs);
+});
+
 app.post("/api/songs/bulk", auth, upload.array("audio", 200), (req, res) => {
   const userId = req.session.userId;
   const user = db.getUserById(userId);
@@ -340,7 +380,7 @@ app.patch("/api/songs/batch-genre", auth, (req, res) => {
 app.delete("/api/songs/:id", auth, (req, res) => {
   const userId = req.session.userId;
   const song = db.getSongById(req.params.id, userId);
-  if (song?.audioFile) {
+  if (song?.audioFile && !song.audioFile.startsWith("idb:")) {
     const filename = path.basename(song.audioFile);
     const p = path.join(UPLOADS_DIR, String(userId), filename);
     if (fs.existsSync(p)) fs.unlinkSync(p);
@@ -470,7 +510,7 @@ app.get("/api/export/m3u", auth, (req, res) => {
   for (const s of ranked) {
     if (s.audioFile) {
       m3u += `#EXTINF:-1,${s.title}\n`;
-      m3u += `${s.audioFile}\n`;
+      m3u += `${s.audioFile.startsWith("idb:") && s.audioName ? s.audioName : s.audioFile}\n`;
     }
   }
 

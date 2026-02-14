@@ -1,6 +1,24 @@
 import React, { useState, useRef, useCallback, useEffect, createContext, useContext } from 'react';
+import { getAudio } from '../audioStore';
+import { getBlobUrl, setBlobUrl } from '../blobUrlCache';
 
 const AudioCtx = createContext();
+
+function isIdbSrc(src) { return typeof src === 'string' && src.startsWith('idb:'); }
+
+function parseSongId(src) { return src.slice(4); }
+
+async function resolveToUrl(src) {
+  if (!isIdbSrc(src)) return src;
+  const songId = parseSongId(src);
+  const cached = getBlobUrl(songId);
+  if (cached) return cached;
+  const record = await getAudio(songId);
+  if (!record) return null;
+  const url = URL.createObjectURL(record.blob);
+  setBlobUrl(songId, url);
+  return url;
+}
 
 function AudioProvider({ children }) {
   const audioRef = useRef(null);
@@ -25,17 +43,24 @@ function AudioProvider({ children }) {
   const getSnapshot = useCallback((src) => snapshotsRef.current[src] || null, []);
 
   const playAttemptRef = useRef(0);
+  const currentIdentifierRef = useRef(null);
 
-  const play = useCallback((src) => {
+  const play = useCallback(async (src) => {
     const el = audioRef.current;
     if (!el) return;
-    const currentKey = getSrcKey(el.src);
-    if (currentKey && currentKey !== src && el.duration) {
-      snapshotsRef.current[currentKey] = { time: el.currentTime, duration: el.duration };
+    const prevId = currentIdentifierRef.current;
+    if (prevId && prevId !== src && el.duration) {
+      snapshotsRef.current[prevId] = { time: el.currentTime, duration: el.duration };
     }
     const attemptId = ++playAttemptRef.current;
-    if (currentKey !== src) {
-      el.src = src;
+    const url = await resolveToUrl(src);
+    if (!url) { console.warn("[iMade] audio not available in IndexedDB:", src); return; }
+    if (playAttemptRef.current !== attemptId) return;
+    currentIdentifierRef.current = src;
+    const currentElUrl = getSrcKey(el.src);
+    const resolvedKey = isIdbSrc(src) ? getSrcKey(url) : src;
+    if (currentElUrl !== resolvedKey) {
+      el.src = url;
     }
     el.play().then(() => {
       if (playAttemptRef.current !== attemptId) return;
@@ -54,13 +79,10 @@ function AudioProvider({ children }) {
   }, [notify]);
 
   const toggle = useCallback((src) => {
-    const el = audioRef.current;
-    if (!el) return;
-    const currentKey = getSrcKey(el.src);
-    const isSameSrc = currentKey === src;
+    const isSameSrc = currentIdentifierRef.current === src;
     if (isSameSrc && isPlayingRef.current) { pause(); }
     else { play(src); }
-  }, [play, pause, getSrcKey]);
+  }, [play, pause]);
 
   const seek = useCallback((time) => {
     const el = audioRef.current;
@@ -79,6 +101,7 @@ function AudioProvider({ children }) {
     const el = audioRef.current;
     if (!el) return;
     playAttemptRef.current++;
+    currentIdentifierRef.current = null;
     el.pause();
     setIsPlaying(false); isPlayingRef.current = false;
     setPlayingSrc(null);
@@ -184,10 +207,10 @@ function AudioProvider({ children }) {
       const analyser = analyserRef.current;
       if (!analyser || !el.duration) return;
 
-      const src = getSrcKey(el.src);
+      const id = currentIdentifierRef.current;
       // Reset buffer on song change
-      if (!waveformRef.current || waveformRef.current.songSrc !== src) {
-        waveformRef.current = { buffer: new Float32Array(WAVEFORM_SIZE), songSrc: src };
+      if (!waveformRef.current || waveformRef.current.songSrc !== id) {
+        waveformRef.current = { buffer: new Float32Array(WAVEFORM_SIZE), songSrc: id };
       }
 
       // Sample one time-domain value at the position matching current progress
@@ -203,7 +226,7 @@ function AudioProvider({ children }) {
     }, 16); // ~60fps sampling
 
     return () => clearInterval(iv);
-  }, [isPlaying, getSrcKey]);
+  }, [isPlaying]);
 
   const getWaveformBuffer = useCallback(() => waveformRef.current, []);
 

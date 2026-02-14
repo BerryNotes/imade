@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import AudioPlayer from './AudioPlayer';
 import GenreTag from './GenreTag';
 
-function SongRow({ song, onDelete, onEdit, onNotes, onChangeGenre, rank, showElo, showWinLoss: showWL, selectable, selected, onToggleSelect, listenTime, playlists, onAddToPlaylist, onAddToQueue, onPlayNext, compact }) {
+function SongRow({ song, onDelete, onEdit, onNotes, onChangeGenre, rank, showElo, showWinLoss: showWL, selectable, selected, onToggleSelect, listenTime, playlists, onAddToPlaylist, onAddToQueue, onPlayNext, compact, audioMissing }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [playlistSub, setPlaylistSub] = useState(false);
   const menuRef = useRef(null);
@@ -106,7 +106,10 @@ function SongRow({ song, onDelete, onEdit, onNotes, onChangeGenre, rank, showElo
           </div>
         )}
       </div>
-      {!compact && song.audioFile && <AudioPlayer src={song.audioFile} compact />}
+      {!compact && song.audioFile && !audioMissing && <AudioPlayer src={song.audioFile} compact />}
+      {!compact && audioMissing && (
+        <div style={{color:"#6b6b80",fontSize:11,fontStyle:"italic",padding:"4px 0"}}>audio not on this device</div>
+      )}
     </div>
   );
 }

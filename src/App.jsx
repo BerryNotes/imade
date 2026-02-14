@@ -3,6 +3,9 @@ import { useGlobalAudio } from './components/AudioProvider';
 import BattleTab from './tabs/BattleTab';
 import AuthScreen from './components/AuthScreen';
 import api from './api';
+import { storeAudio, deleteAudio as idbDeleteAudio } from './audioStore';
+import { revokeBlobUrl } from './blobUrlCache';
+import useAudioAvailability from './hooks/useAudioAvailability';
 
 // Auto-reload on stale chunk (after rebuild, old chunk filenames 404)
 const lazyRetry = (fn) => React.lazy(() => fn().catch(() => { window.location.reload(); return new Promise(() => {}); }));
@@ -162,6 +165,18 @@ function App() {
       showToast("Failed to connect to server");
     }
   }, [showToast]);
+
+  const audioAvailable = useAudioAvailability(songs);
+
+  const handleDeleteSong = useCallback(async (id) => {
+    const song = songs.find(s => s.id === id);
+    if (song?.audioFile?.startsWith("idb:")) {
+      idbDeleteAudio(id).catch(() => {});
+      revokeBlobUrl(id);
+    }
+    await api.del("/api/songs/" + id);
+    await refresh();
+  }, [songs, refresh]);
 
   useEffect(() => { if (user) refresh().then(()=>setLoaded(true)); }, [user]);
 
@@ -324,23 +339,46 @@ function App() {
     setUploadProgress({ done: 0, total });
     let failedCount = 0;
 
-    for (let i = 0; i < total; i += BATCH_SIZE) {
-      if (uploadAbortRef.current) break;
-      const batch = filesToUpload.slice(i, i + BATCH_SIZE);
-      const fd = new FormData();
-      const dates = {};
-      for (const f of batch) {
-        fd.append("audio", f);
-        dates[f.name] = f.lastModified;
+    if (isElectron) {
+      // Electron mode: upload files to server as before
+      for (let i = 0; i < total; i += BATCH_SIZE) {
+        if (uploadAbortRef.current) break;
+        const batch = filesToUpload.slice(i, i + BATCH_SIZE);
+        const fd = new FormData();
+        const dates = {};
+        for (const f of batch) {
+          fd.append("audio", f);
+          dates[f.name] = f.lastModified;
+        }
+        fd.append("dates", JSON.stringify(dates));
+        try {
+          await api.post("/api/songs/bulk", fd);
+        } catch (e) {
+          console.error("Batch upload error:", e);
+          failedCount += batch.length;
+        }
+        setUploadProgress({ done: Math.min(i + BATCH_SIZE, total), total });
       }
-      fd.append("dates", JSON.stringify(dates));
-      try {
-        await api.post("/api/songs/bulk", fd);
-      } catch (e) {
-        console.error("Batch upload error:", e);
-        failedCount += batch.length;
+    } else {
+      // Web mode: send metadata to server, store audio blobs in IndexedDB
+      for (let i = 0; i < total; i += BATCH_SIZE) {
+        if (uploadAbortRef.current) break;
+        const batch = filesToUpload.slice(i, i + BATCH_SIZE);
+        const meta = batch.map(f => ({ name: f.name, lastModified: f.lastModified, size: f.size, type: f.type }));
+        try {
+          const created = await api.post("/api/songs/bulk-meta", { files: meta });
+          // Store each blob in IndexedDB keyed by the song ID the server assigned
+          for (let j = 0; j < created.length; j++) {
+            const song = created[j];
+            const file = batch.find(f => f.name === song.audioName) || batch[j];
+            if (file) await storeAudio(song.id, file, file.name);
+          }
+        } catch (e) {
+          console.error("Batch meta upload error:", e);
+          failedCount += batch.length;
+        }
+        setUploadProgress({ done: Math.min(i + BATCH_SIZE, total), total });
       }
-      setUploadProgress({ done: Math.min(i + BATCH_SIZE, total), total });
     }
 
     setUploadFiles([]);
@@ -567,19 +605,22 @@ function App() {
               batchGenre={libBatchGenre} setBatchGenre={setLibBatchGenre}
               stickyTop={headerHeight} listenTimes={listenTimes}
               setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx} switchTab={switchTab}
-              playlists={playlists} showToast={showToast} rowDensity={rowDensity} />}
+              playlists={playlists} showToast={showToast} rowDensity={rowDensity}
+              audioAvailable={audioAvailable} onDeleteSong={handleDeleteSong} />}
             {tab === "upload" && <UploadTab
               onRefresh={refresh} genres={genres} songs={songs} comparisons={comparisons}
               uploadFiles={uploadFiles} setUploadFiles={setUploadFiles}
               uploading={uploading} uploadDone={uploadDone} setUploadDone={setUploadDone}
-              uploadProgress={uploadProgress} startUpload={startUpload} planInfo={planInfo} switchTab={switchTab} />}
+              uploadProgress={uploadProgress} startUpload={startUpload} planInfo={planInfo} switchTab={switchTab}
+              audioAvailable={audioAvailable} />}
             {tab === "playlists" && <PlaylistsTab songs={songs} playlists={playlists} genres={genres} comparisons={comparisons} onRefresh={refresh} showToast={showToast}
               setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx} />}
             {tab === "rankings" && <RankingsTab songs={songs} comparisons={comparisons} onRefresh={refresh} showToast={showToast}
               lastUpdateCompCount={lastUpdateCompCount} setLastUpdateCompCount={setLastUpdateCompCount} switchTab={switchTab}
               showVariance={showVariance} showWinLoss={showWinLoss} rowDensity={rowDensity}
               stickyTop={headerHeight}
-              setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx} />}
+              setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx}
+              audioAvailable={audioAvailable} />}
             {tab === "stats" && <StatsTab songs={songs} comparisons={comparisons} listenTimes={listenTimes}
               setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx} switchTab={switchTab}
               onStartFocusedSession={(songIds) => { setFocusedSessionSongs(songIds); switchTab("battle"); }}

@@ -1,11 +1,21 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
+import { storeAudio } from '../audioStore';
 
-function UploadTab({ onRefresh, genres, songs, comparisons, uploadFiles, setUploadFiles, uploading, uploadDone, setUploadDone, uploadProgress, startUpload, showToast, planInfo, switchTab }) {
+function UploadTab({ onRefresh, genres, songs, comparisons, uploadFiles, setUploadFiles, uploading, uploadDone, setUploadDone, uploadProgress, startUpload, showToast, planInfo, switchTab, audioAvailable }) {
   const [dragging, setDragging] = useState(false);
   const [dupes, setDupes] = useState([]);
+  const [reimportDragging, setReimportDragging] = useState(false);
+  const [reimportResult, setReimportResult] = useState(null);
   const inputRef = useRef(null);
+  const reimportInputRef = useRef(null);
 
   const existingNames = new Set(songs.map(s => (s.audioName || "").toLowerCase()));
+
+  // Songs that are idb: but missing from this device's IndexedDB
+  const missingSongs = useMemo(() => {
+    if (!audioAvailable) return [];
+    return songs.filter(s => s.audioFile && s.audioFile.startsWith("idb:") && !audioAvailable.has(s.id));
+  }, [songs, audioAvailable]);
 
   const handleFiles = (fileList) => {
     const audioFiles = Array.from(fileList).filter(f => f.type.startsWith("audio/"));
@@ -33,6 +43,32 @@ function UploadTab({ onRefresh, genres, songs, comparisons, uploadFiles, setUplo
     setUploadDone(false);
   };
 
+  const handleReimport = async (fileList) => {
+    const files = Array.from(fileList).filter(f => f.type.startsWith("audio/"));
+    if (!files.length) return;
+
+    // Build a map from lowercase audioName → song for quick lookup
+    const nameToSong = new Map();
+    for (const s of missingSongs) {
+      if (s.audioName) nameToSong.set(s.audioName.toLowerCase(), s);
+    }
+
+    let matched = 0;
+    for (const file of files) {
+      const song = nameToSong.get(file.name.toLowerCase());
+      if (song) {
+        await storeAudio(song.id, file, file.name);
+        matched++;
+      }
+    }
+
+    setReimportResult({ matched, total: files.length });
+    if (matched > 0) {
+      onRefresh(); // triggers useAudioAvailability re-check
+      showToast(matched + " song" + (matched > 1 ? "s" : "") + " reconnected");
+    }
+  };
+
   const handleDrop = (e) => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files); };
   const handleDragOver = (e) => { e.preventDefault(); setDragging(true); };
   const handleDragLeave = () => setDragging(false);
@@ -46,6 +82,36 @@ function UploadTab({ onRefresh, genres, songs, comparisons, uploadFiles, setUplo
 
   return (
     <div>
+      {/* Re-import section for missing audio */}
+      {missingSongs.length > 0 && !uploading && (
+        <div
+          onDrop={(e) => { e.preventDefault(); setReimportDragging(false); handleReimport(e.dataTransfer.files); }}
+          onDragOver={(e) => { e.preventDefault(); setReimportDragging(true); }}
+          onDragLeave={() => setReimportDragging(false)}
+          onClick={() => reimportInputRef.current?.click()}
+          style={{
+            border: reimportDragging ? "2px solid #f59e0b" : "2px dashed #f59e0b44",
+            borderRadius: 16, padding: "20px 24px", textAlign: "center",
+            cursor: "pointer", transition: "all 0.3s",
+            background: reimportDragging ? "#f59e0b11" : "#1a180f",
+            marginBottom: 20,
+          }}
+        >
+          <input ref={reimportInputRef} type="file" accept="audio/*" multiple onChange={e => handleReimport(e.target.files)} style={{display:"none"}} />
+          <p style={{color:"#f59e0b",fontSize:14,fontWeight:600,margin:"0 0 4px"}}>
+            {missingSongs.length} song{missingSongs.length !== 1 ? "s" : ""} missing audio on this device
+          </p>
+          <p style={{color:"#f59e0b88",fontSize:12,margin:0}}>
+            Drag the original files here to reconnect them
+          </p>
+          {reimportResult && (
+            <p style={{color:"#6b6b80",fontSize:11,marginTop:8}}>
+              Last attempt: {reimportResult.matched} of {reimportResult.total} files matched
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Song limit indicator — only show for trial users */}
       {planInfo && isTrial && (
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,padding:"12px 18px",background:atLimit?"#2d1a1a":"#14142a",border:"1px solid "+(atLimit?"#5a2a2a":"#2a2a45"),borderRadius:12}}>

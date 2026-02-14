@@ -358,7 +358,7 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
                           <button key={pl.id} onClick={() => {
                             const plSongs = pl.songIds ? pl.songIds.map(id => songs.find(s=>s.id===id)).filter(Boolean) : [];
                             if (!plSongs.length) return;
-                            const m3u = "#EXTM3U\n" + plSongs.filter(s=>s.audioFile).map(s => "#EXTINF:-1," + s.title + "\n" + s.audioFile).join("\n");
+                            const m3u = "#EXTM3U\n" + plSongs.filter(s=>s.audioFile).map(s => "#EXTINF:-1," + s.title + "\n" + (s.audioFile.startsWith("idb:") && s.audioName ? s.audioName : s.audioFile)).join("\n");
                             const blob = new Blob([m3u], { type: "audio/x-mpegurl" });
                             const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = pl.name + ".m3u"; a.click(); URL.revokeObjectURL(url);
                             showToast(pl.name + ".m3u downloaded");
