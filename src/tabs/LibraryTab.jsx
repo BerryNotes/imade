@@ -136,7 +136,7 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
     <div style={{display:"flex",flexDirection:isMobile?"column":"row",gap:isMobile?10:16,alignItems:isMobile?"stretch":"flex-start"}}>
       {/* Controls — top bar on mobile, sidebar on desktop */}
       {isMobile ? (
-        <div style={{display:"flex",flexDirection:"column",gap:8,zIndex:10,position:"sticky",top:(stickyTop||0)+40,background:"#0a0a14",paddingTop:8,paddingBottom:4}}>
+        <div style={{display:"flex",flexDirection:"column",gap:8,zIndex:10,position:"sticky",top:(stickyTop||0),background:"#0a0a14",paddingTop:6,paddingBottom:4}}>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
             {searchInput}
             {bulkTagBtn}

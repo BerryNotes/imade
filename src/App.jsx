@@ -470,8 +470,8 @@ function App() {
             <button onClick={() => setShowSettings(!showSettings)}
               style={{display:"flex",alignItems:"center",gap:10,background:"transparent",border:"none",cursor:"pointer",padding:0,flexShrink:0}}>
               <span style={{color:"#9a9ab0",fontSize:13,fontWeight:500,transition:"color 0.15s"}}>{user.username}</span>
-              <span style={{width:44,height:44,borderRadius:"50%",background: showSettings ? "linear-gradient(135deg,#6366f1,#818cf8)" : "linear-gradient(135deg,#4338ca,#6366f1)",
-                display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:18,fontWeight:700,
+              <span style={{width:window.innerWidth<640?34:44,height:window.innerWidth<640?34:44,borderRadius:"50%",background: showSettings ? "linear-gradient(135deg,#6366f1,#818cf8)" : "linear-gradient(135deg,#4338ca,#6366f1)",
+                display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:window.innerWidth<640?14:18,fontWeight:700,
                 border: showSettings ? "2px solid #a5b4fc" : "2px solid #2a2a45",flexShrink:0,transition:"all 0.15s",
                 boxShadow: showSettings ? "0 0 12px rgba(129,140,248,0.4)" : "0 2px 8px rgba(0,0,0,0.3)"}}>
                 {user.username.charAt(0).toUpperCase()}
@@ -481,13 +481,13 @@ function App() {
         </div>
 
         {/* Tabs */}
-        <div style={{display:"flex",gap:2,marginTop:16,borderBottom:"1px solid #1e1e35",overflowX:"auto"}}>
+        <div style={{display:"flex",gap:2,marginTop:window.innerWidth<640?8:16,borderBottom:"1px solid #1e1e35",overflowX:"auto"}}>
           {tabs.map(t => (
             <button key={t.id} onClick={()=>switchTab(t.id)} style={{
               background:"transparent",
               border:"none", borderBottom: tab===t.id ? "2px solid #818cf8" : "2px solid transparent",
-              padding:"10px 18px", color: tab===t.id ? "#e2e8f0" : "#6b6b80",
-              fontSize:13, cursor:"pointer", whiteSpace:"nowrap",
+              padding:window.innerWidth<640?"7px 12px":"10px 18px", color: tab===t.id ? "#e2e8f0" : "#6b6b80",
+              fontSize:window.innerWidth<640?11:13, cursor:"pointer", whiteSpace:"nowrap",
               transition:"color 0.15s ease, border-color 0.15s ease",
             }}
               onMouseEnter={e=>{if(tab!==t.id)e.target.style.color="#a0a0b0"}}
