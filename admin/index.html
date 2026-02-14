@@ -25,13 +25,22 @@
 
     /* Dashboard */
     .dashboard { display: none; }
-    .header { padding: 24px 32px; border-bottom: 1px solid #1e1e35; display: flex; align-items: center; justify-content: space-between; }
+    .header { padding: 24px 32px 0; display: flex; align-items: center; justify-content: space-between; }
     .header h1 { font-size: 18px; font-weight: 700; color: #e2e2f0; letter-spacing: -0.02em; }
     .header .stats { font-size: 12px; color: #6b7280; }
     .header .right { display: flex; align-items: center; gap: 16px; }
     .header .server-url { font-size: 11px; color: #4b5563; font-family: monospace; }
     .header .disconnect { font-size: 11px; color: #ef4444; cursor: pointer; background: none; border: none; }
     .header .disconnect:hover { text-decoration: underline; }
+
+    /* Tabs */
+    .tab-bar { display: flex; gap: 2px; padding: 16px 32px 0; border-bottom: 1px solid #1e1e35; }
+    .tab-btn { background: transparent; border: none; border-bottom: 2px solid transparent; padding: 10px 18px; color: #6b6b80; font-size: 13px; cursor: pointer; white-space: nowrap; transition: color 0.15s, border-color 0.15s; }
+    .tab-btn:hover { color: #a0a0b0; }
+    .tab-btn.active { color: #e2e8f0; border-bottom-color: #818cf8; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
     .content { max-width: 960px; margin: 0 auto; padding: 24px 20px; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th { text-align: left; padding: 10px 14px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; border-bottom: 1px solid #1e1e35; background: #0f0f1a; }
@@ -95,6 +104,26 @@
     .save-bar .btn-bar-cancel { background: none; color: #6b7280; border: 1px solid #2a2a40; padding: 8px 20px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; }
     .save-bar .btn-bar-cancel:hover { border-color: #6b7280; color: #c4c4d4; }
     .toggle-changed { outline: 2px solid #818cf8; outline-offset: 1px; }
+
+    /* Traffic tab */
+    .traffic-setup { background: #0f0f1a; border: 1px solid #1e1e35; border-radius: 8px; padding: 24px; max-width: 480px; }
+    .traffic-setup h3 { font-size: 14px; font-weight: 700; color: #e2e2f0; margin-bottom: 4px; }
+    .traffic-setup p { font-size: 12px; color: #6b7280; margin-bottom: 16px; }
+    .traffic-setup .field input { width: 100%; }
+    .stat-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px; }
+    .stat-card { background: #0f0f1a; border: 1px solid #1e1e35; border-radius: 8px; padding: 16px; }
+    .stat-card .label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; margin-bottom: 4px; }
+    .stat-card .value { font-size: 24px; font-weight: 700; color: #e2e2f0; font-family: 'SF Mono', Monaco, monospace; }
+    .stat-card .sub { font-size: 11px; color: #4b5563; margin-top: 2px; }
+    .traffic-section { margin-bottom: 24px; }
+    .traffic-section h3 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; margin-bottom: 10px; }
+    .range-bar { display: flex; gap: 6px; margin-bottom: 20px; }
+    .range-btn { background: none; border: 1px solid #2a2a40; color: #6b7280; padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+    .range-btn:hover { border-color: #818cf8; color: #818cf8; }
+    .range-btn.active { background: rgba(129,140,248,0.15); border-color: #818cf8; color: #818cf8; }
+    .traffic-table td:last-child { text-align: right; font-family: 'SF Mono', Monaco, monospace; font-size: 12px; }
+    .traffic-disconnect { font-size: 11px; color: #6b7280; cursor: pointer; background: none; border: none; margin-left: 8px; }
+    .traffic-disconnect:hover { color: #ef4444; }
   </style>
 </head>
 <body>
@@ -129,40 +158,56 @@
         <button class="disconnect" id="disconnect-btn">Disconnect</button>
       </div>
     </div>
-    <div class="content">
-      <div class="toolbar">
-        <button class="btn-refresh" id="refresh-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
-        <button class="btn-add" id="add-user-btn">+ Add User</button>
-      </div>
-      <div class="add-form-wrap" id="add-form-wrap">
-        <h3>Create New User</h3>
-        <div class="add-form">
-          <div class="field"><label>Username</label><input id="add-username" placeholder="min 2 characters" /></div>
-          <div class="field"><label>Password</label><input id="add-password" type="password" placeholder="min 4 characters" /></div>
-          <button class="btn btn-save" id="add-save-btn">Create</button>
-          <button class="btn btn-cancel" id="add-cancel-btn">Cancel</button>
+
+    <!-- Tab bar -->
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="users">Users</button>
+      <button class="tab-btn" data-tab="traffic">Traffic</button>
+    </div>
+
+    <!-- Users tab -->
+    <div class="tab-panel active" id="tab-users">
+      <div class="content">
+        <div class="toolbar">
+          <button class="btn-refresh" id="refresh-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
+          <button class="btn-add" id="add-user-btn">+ Add User</button>
         </div>
-        <div class="add-error" id="add-error"></div>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Username</th>
-              <th>Plan</th>
-              <th>Role</th>
-              <th class="num">Songs</th>
-              <th class="num">Comparisons</th>
-              <th class="num">Playlists</th>
-              <th>Joined</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="user-table"></tbody>
-        </table>
+        <div class="add-form-wrap" id="add-form-wrap">
+          <h3>Create New User</h3>
+          <div class="add-form">
+            <div class="field"><label>Username</label><input id="add-username" placeholder="min 2 characters" /></div>
+            <div class="field"><label>Password</label><input id="add-password" type="password" placeholder="min 4 characters" /></div>
+            <button class="btn btn-save" id="add-save-btn">Create</button>
+            <button class="btn btn-cancel" id="add-cancel-btn">Cancel</button>
+          </div>
+          <div class="add-error" id="add-error"></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Username</th>
+                <th>Plan</th>
+                <th>Role</th>
+                <th class="num">Songs</th>
+                <th class="num">Comparisons</th>
+                <th class="num">Playlists</th>
+                <th>Joined</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="user-table"></tbody>
+          </table>
+        </div>
       </div>
     </div>
+
+    <!-- Traffic tab -->
+    <div class="tab-panel" id="tab-traffic">
+      <div class="content" id="traffic-content"></div>
+    </div>
+
     <div class="save-bar" id="save-bar">
       <span class="save-msg" id="save-msg"></span>
       <button class="btn-bar-cancel" id="bar-cancel-btn">Cancel</button>
@@ -179,6 +224,17 @@
     let confirmingDelete = null;
     let songCache = {};
     let pendingChanges = {}; // { userId: { plan?, role? } }
+
+    // --- Tab switching ---
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+        if (btn.dataset.tab === 'traffic') initTraffic();
+      });
+    });
 
     // Auto-connect when served locally (same-origin, session auth)
     const isLocal = location.pathname.startsWith('/admin');
@@ -561,6 +617,196 @@
     document.getElementById('add-password').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') document.getElementById('add-save-btn').click();
     });
+
+    // ===================== TRAFFIC TAB =====================
+
+    const VERCEL_API = 'https://api.vercel.com';
+    let vercelToken = localStorage.getItem('imade_vercel_token') || '';
+    let vercelProjectId = localStorage.getItem('imade_vercel_project') || '';
+    let trafficRange = '7d';
+    let trafficInitialized = false;
+
+    function initTraffic() {
+      if (!vercelToken) {
+        renderTrafficSetup();
+      } else if (!trafficInitialized || !vercelProjectId) {
+        detectProjectAndLoad();
+      }
+    }
+
+    function renderTrafficSetup() {
+      document.getElementById('traffic-content').innerHTML = `
+        <div class="traffic-setup">
+          <h3>Connect Vercel Analytics</h3>
+          <p>Enter your Vercel API token to view site traffic. Generate one at <a href="https://vercel.com/account/tokens" target="_blank" rel="noopener" style="color:#818cf8">vercel.com/account/tokens</a>.</p>
+          <div class="field" style="margin-bottom:12px">
+            <label>Vercel API Token</label>
+            <input id="vercel-token-input" type="password" placeholder="Paste your Vercel token" />
+          </div>
+          <button class="btn btn-save" id="vercel-connect-btn">Connect</button>
+          <div class="add-error" id="vercel-error"></div>
+        </div>`;
+      document.getElementById('vercel-connect-btn').addEventListener('click', async () => {
+        const token = document.getElementById('vercel-token-input').value.trim();
+        const errEl = document.getElementById('vercel-error');
+        if (!token) { errEl.textContent = 'Token is required.'; return; }
+        errEl.textContent = '';
+        try {
+          const r = await fetch(VERCEL_API + '/v2/user', { headers: { Authorization: 'Bearer ' + token } });
+          if (!r.ok) throw new Error('Invalid token');
+          vercelToken = token;
+          localStorage.setItem('imade_vercel_token', token);
+          detectProjectAndLoad();
+        } catch (e) { errEl.textContent = e.message; }
+      });
+      document.getElementById('vercel-token-input').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') document.getElementById('vercel-connect-btn').click();
+      });
+    }
+
+    async function vercelFetch(path) {
+      const r = await fetch(VERCEL_API + path, { headers: { Authorization: 'Bearer ' + vercelToken } });
+      if (r.status === 401 || r.status === 403) {
+        vercelToken = ''; vercelProjectId = '';
+        localStorage.removeItem('imade_vercel_token');
+        localStorage.removeItem('imade_vercel_project');
+        renderTrafficSetup();
+        throw new Error('Token expired');
+      }
+      if (!r.ok) {
+        const text = await r.text();
+        let msg; try { msg = JSON.parse(text).error?.message; } catch {}
+        throw new Error(msg || `Vercel API error (${r.status})`);
+      }
+      return r.json();
+    }
+
+    async function detectProjectAndLoad() {
+      const el = document.getElementById('traffic-content');
+      el.innerHTML = '<div class="loading">Connecting to Vercel...</div>';
+      try {
+        if (!vercelProjectId) {
+          const data = await vercelFetch('/v9/projects?limit=50');
+          const projects = data.projects || [];
+          const site = projects.find(p => p.name === 'imade-site' || (p.targets?.production?.alias || []).some(a => a.includes('imade')));
+          if (!site) {
+            el.innerHTML = '<div class="error">Could not find imade-site project. Make sure the token has access to it.</div>';
+            return;
+          }
+          vercelProjectId = site.id;
+          localStorage.setItem('imade_vercel_project', vercelProjectId);
+        }
+        trafficInitialized = true;
+        loadTraffic();
+      } catch (e) {
+        el.innerHTML = `<div class="error">${esc(e.message)}</div>`;
+      }
+    }
+
+    function getRange() {
+      const now = Date.now();
+      const ranges = { '24h': 86400000, '7d': 604800000, '30d': 2592000000 };
+      return { from: now - (ranges[trafficRange] || ranges['7d']), to: now };
+    }
+
+    async function loadTraffic() {
+      const el = document.getElementById('traffic-content');
+      const { from, to } = getRange();
+      const q = `projectId=${vercelProjectId}&from=${from}&to=${to}&environment=production`;
+
+      el.innerHTML = '<div class="loading">Loading analytics...</div>';
+
+      try {
+        const [overview, pages, referrers, countries] = await Promise.all([
+          vercelFetch(`/v1/web-analytics/overview?${q}`).catch(() => null),
+          vercelFetch(`/v1/web-analytics/top/pages?${q}&limit=10`).catch(() => null),
+          vercelFetch(`/v1/web-analytics/top/referrers?${q}&limit=10`).catch(() => null),
+          vercelFetch(`/v1/web-analytics/top/countries?${q}&limit=10`).catch(() => null),
+        ]);
+
+        let html = '';
+
+        // Range selector
+        html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+          <div class="range-bar">
+            <button class="range-btn ${trafficRange === '24h' ? 'active' : ''}" data-range="24h">24h</button>
+            <button class="range-btn ${trafficRange === '7d' ? 'active' : ''}" data-range="7d">7 days</button>
+            <button class="range-btn ${trafficRange === '30d' ? 'active' : ''}" data-range="30d">30 days</button>
+          </div>
+          <div>
+            <button class="btn-refresh" id="traffic-refresh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
+            <button class="traffic-disconnect" id="traffic-disconnect-btn">Disconnect Vercel</button>
+          </div>
+        </div>`;
+
+        // Overview cards
+        if (overview) {
+          const ov = overview;
+          const visitors = ov.visitors ?? ov.uniqueVisitors ?? '\u2014';
+          const views = ov.pageViews ?? ov.views ?? '\u2014';
+          const bounce = ov.bounceRate != null ? (ov.bounceRate * 100).toFixed(0) + '%' : '\u2014';
+          const dur = ov.avgDuration != null ? (ov.avgDuration / 1000).toFixed(1) + 's' : '\u2014';
+          html += `<div class="stat-cards">
+            <div class="stat-card"><div class="label">Visitors</div><div class="value">${visitors}</div></div>
+            <div class="stat-card"><div class="label">Page Views</div><div class="value">${views}</div></div>
+            <div class="stat-card"><div class="label">Bounce Rate</div><div class="value">${bounce}</div></div>
+            <div class="stat-card"><div class="label">Avg Duration</div><div class="value">${dur}</div></div>
+          </div>`;
+        } else {
+          html += '<div class="stat-cards"><div class="stat-card"><div class="label">Analytics</div><div class="value" style="font-size:14px;color:#6b7280">No data yet. Enable Web Analytics in your Vercel project settings.</div></div></div>';
+        }
+
+        // Top pages
+        html += '<div class="traffic-section"><h3>Top Pages</h3>';
+        if (pages?.data?.length) {
+          html += '<div class="table-wrap"><table class="traffic-table"><thead><tr><th>Page</th><th style="text-align:right">Views</th></tr></thead><tbody>';
+          for (const p of pages.data) {
+            html += `<tr><td>${esc(p.key || p.page || p.path || '\u2014')}</td><td style="text-align:right">${p.total ?? p.visitors ?? p.views ?? '\u2014'}</td></tr>`;
+          }
+          html += '</tbody></table></div>';
+        } else { html += '<div class="empty">No page data</div>'; }
+        html += '</div>';
+
+        // Top referrers
+        html += '<div class="traffic-section"><h3>Top Referrers</h3>';
+        if (referrers?.data?.length) {
+          html += '<div class="table-wrap"><table class="traffic-table"><thead><tr><th>Referrer</th><th style="text-align:right">Visitors</th></tr></thead><tbody>';
+          for (const r of referrers.data) {
+            html += `<tr><td>${esc(r.key || r.referrer || '\u2014')}</td><td style="text-align:right">${r.total ?? r.visitors ?? '\u2014'}</td></tr>`;
+          }
+          html += '</tbody></table></div>';
+        } else { html += '<div class="empty">No referrer data</div>'; }
+        html += '</div>';
+
+        // Top countries
+        html += '<div class="traffic-section"><h3>Top Countries</h3>';
+        if (countries?.data?.length) {
+          html += '<div class="table-wrap"><table class="traffic-table"><thead><tr><th>Country</th><th style="text-align:right">Visitors</th></tr></thead><tbody>';
+          for (const c of countries.data) {
+            html += `<tr><td>${esc(c.key || c.country || '\u2014')}</td><td style="text-align:right">${c.total ?? c.visitors ?? '\u2014'}</td></tr>`;
+          }
+          html += '</tbody></table></div>';
+        } else { html += '<div class="empty">No country data</div>'; }
+        html += '</div>';
+
+        el.innerHTML = html;
+
+        // Range button handlers
+        el.querySelectorAll('[data-range]').forEach(btn => {
+          btn.addEventListener('click', () => { trafficRange = btn.dataset.range; loadTraffic(); });
+        });
+        document.getElementById('traffic-refresh')?.addEventListener('click', loadTraffic);
+        document.getElementById('traffic-disconnect-btn')?.addEventListener('click', () => {
+          vercelToken = ''; vercelProjectId = '';
+          localStorage.removeItem('imade_vercel_token');
+          localStorage.removeItem('imade_vercel_project');
+          trafficInitialized = false;
+          renderTrafficSetup();
+        });
+      } catch (e) {
+        el.innerHTML = `<div class="error">${esc(e.message)}</div>`;
+      }
+    }
   </script>
 </body>
 </html>
