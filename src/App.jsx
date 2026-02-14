@@ -583,7 +583,7 @@ function App() {
       )}
 
       {/* Content */}
-      <div style={{maxWidth:1200,margin:"0 auto",padding: tab === "visualizer" ? "0" : window.innerWidth < 640 ? "4px 8px 40px" : "20px 24px 40px",overflowX:"hidden"}}>
+      <div style={{maxWidth:1200,margin:"0 auto",padding: tab === "visualizer" ? "0" : window.innerWidth < 640 ? "0 8px 40px" : "20px 24px 40px",overflowX:"hidden"}}>
         {/* BattleTab uses display:none/block to preserve session state */}
         <div style={{display: tab === "battle" ? "block" : "none"}}>
           {loaded && <BattleTab songs={songs} comparisons={comparisons} onRefresh={refresh} showToast={showToast} savedPair={battlePair} setSavedPair={setBattlePair}
