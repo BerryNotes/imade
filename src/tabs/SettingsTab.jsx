@@ -19,6 +19,7 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
   const [deleting, setDeleting] = useState(false);
   const [showExportPlaylists, setShowExportPlaylists] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [editUsername, setEditUsername] = useState("");
   const [editPassword, setEditPassword] = useState("");
   const [editingProfile, setEditingProfile] = useState(false);
@@ -108,6 +109,19 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
       const r = await api.post("/api/backup");
       if (r.name) showToast("Server backup: " + r.name);
     } catch (e) { showToast("Failed to create server backup"); }
+  };
+
+  const importBackup = async (file) => {
+    if (!file) return;
+    setImporting(true);
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      await api.post("/api/import", data);
+      await onRefresh();
+      showToast("Data imported successfully");
+    } catch (e) { showToast("Import failed: " + (e.message || "unknown error")); }
+    setImporting(false);
   };
 
   const sec = { background:"#14142a",border:"1px solid #2a2a45",borderRadius:14,padding:"20px 22px",marginBottom:16 };
@@ -381,8 +395,12 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
               <button onClick={exportBackup} style={{background:"linear-gradient(135deg,#4338ca,#6366f1)",border:"none",borderRadius:10,padding:"10px 18px",color:"#fff",fontSize:13,cursor:"pointer",fontWeight:600}}>download full backup</button>
               <button onClick={serverBackup} style={{background:"none",border:"1px solid #2a2a45",borderRadius:10,padding:"10px 18px",color:"#8a8aa0",fontSize:13,cursor:"pointer"}}
                 onMouseEnter={e=>e.target.style.color="#22c55e"} onMouseLeave={e=>e.target.style.color="#8a8aa0"}>server backup</button>
+              <label style={{background:"none",border:"1px solid #2a2a45",borderRadius:10,padding:"10px 18px",color:"#8a8aa0",fontSize:13,cursor:importing?"default":"pointer",opacity:importing?0.5:1,display:"inline-block"}}>
+                {importing ? "importing..." : "import backup"}
+                <input type="file" accept=".json" onChange={e=>{importBackup(e.target.files[0]);e.target.value="";}} style={{display:"none"}} disabled={importing} />
+              </label>
             </div>
-            <p style={{color:"#6b6b80",fontSize:11,marginTop:10}}>Full backup includes songs, comparisons, genres, and playlists as JSON.</p>
+            <p style={{color:"#6b6b80",fontSize:11,marginTop:10}}>Full backup includes songs, comparisons, genres, and playlists as JSON. Import replaces all existing data.</p>
           </div>
 
           {/* Delete Data */}

@@ -36,7 +36,7 @@ db.getDb(); // triggers schema creation
 // Session middleware
 const { createSessionMiddleware, requireAuth, electronAutoLogin } = require("./src/middleware/auth");
 
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
 app.use(createSessionMiddleware());
 
 // CORS for remote admin site
@@ -792,6 +792,46 @@ app.get("/api/admin/users/:id/songs", requireAdmin, (req, res) => {
     .map(s => ({ ...s, elo: Math.round(s.baseElo > 0 ? s.baseElo : (elo[s.id] || 500)) }))
     .sort((a, b) => b.elo - a.elo);
   res.json(ranked);
+});
+
+app.get("/api/admin/users/:id/export", requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const user = db.getUserById(id);
+  if (!user) return res.status(404).json({ error: "User not found" });
+  const data = {
+    songs: db.getSongs(id),
+    comparisons: db.getComparisons(id),
+    genres: db.getGenres(id),
+    playlists: db.getPlaylists(id),
+    listenTimes: db.getListenTimes(id),
+    exportedAt: new Date().toISOString(),
+    username: user.username,
+  };
+  res.json(data);
+});
+
+app.post("/api/admin/users/:id/import", requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const user = db.getUserById(id);
+  if (!user) return res.status(404).json({ error: "User not found" });
+  try {
+    db.bulkReplace(id, req.body);
+    res.json({ success: true });
+  } catch (e) {
+    console.error("Admin import error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/import", auth, (req, res) => {
+  const userId = req.session.userId;
+  try {
+    db.bulkReplace(userId, req.body);
+    res.json({ success: true });
+  } catch (e) {
+    console.error("Import error:", e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get("/api/admin/activity", requireAdmin, (req, res) => {
