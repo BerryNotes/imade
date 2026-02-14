@@ -1142,8 +1142,8 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
         const maxTime = topListened[0]?.time || 1;
         const genreTime = {};
         topListened.forEach(({ song, time }) => {
-          const g = song.genre || "untagged";
-          genreTime[g] = (genreTime[g] || 0) + time;
+          if (!song.genre) return;
+          genreTime[song.genre] = (genreTime[song.genre] || 0) + time;
         });
         const genreTimeSorted = Object.entries(genreTime).sort((a,b) => b[1] - a[1]);
         const maxGenreTime = genreTimeSorted[0]?.[1] || 1;
@@ -1214,8 +1214,8 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
               {genreTimeSorted.length > 1 && (() => {
                 const genreSongCount = {};
                 topListened.forEach(({ song }) => {
-                  const g = song.genre || "untagged";
-                  genreSongCount[g] = (genreSongCount[g] || 0) + 1;
+                  if (!song.genre) return;
+                  genreSongCount[song.genre] = (genreSongCount[song.genre] || 0) + 1;
                 });
                 const perSong = genreTimeSorted
                   .map(([g, time]) => ({ genre: g, perSong: time / (genreSongCount[g] || 1) }))
@@ -1252,9 +1252,17 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
               <div ref={cardRef("growth",0)} style={{...cardStyle,marginBottom:16}}>
                 <div style={headStyle}>monthly output</div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(56px,1fr))",gap:4}}>
-                  {creativeStreaks.months.map(m => {
+                  {(() => { const maxCount = Math.max(...creativeStreaks.months.map(m => m.count), 1); return creativeStreaks.months.map(m => {
                     const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-                    const bg = m.count === 0 ? "#1e1e35" : m.avgElo >= creativeStreaks.overallAvg ? `rgba(34,197,94,${Math.min(0.7, 0.2 + (m.avgElo - creativeStreaks.overallAvg) / 300)})` : `rgba(239,68,68,${Math.min(0.7, 0.2 + (creativeStreaks.overallAvg - m.avgElo) / 300)})`;
+                    let bg = "#1e1e35";
+                    if (m.count > 0) {
+                      const brightness = 0.15 + 0.85 * (m.count / maxCount);
+                      const isAboveAvg = m.avgElo >= creativeStreaks.overallAvg;
+                      const r = isAboveAvg ? 34 : Math.round(239 - (239 - 180) * brightness);
+                      const g = isAboveAvg ? Math.round(140 + 57 * brightness) : Math.round(68 * (1 - brightness * 0.5));
+                      const b = isAboveAvg ? Math.round(94 * brightness) : Math.round(68 * (1 - brightness * 0.3));
+                      bg = `rgba(${r},${g},${b},${Math.min(0.9, 0.15 + 0.75 * brightness)})`;
+                    }
                     const isHovered = hoveredMonth === m.key;
                     return (
                       <div key={m.key} style={{position:"relative"}}
@@ -1289,7 +1297,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
                         )}
                       </div>
                     );
-                  })}
+                  }); })()}
                 </div>
               </div>
 
