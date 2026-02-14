@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { useGlobalAudio } from '../components/AudioProvider';
 import api from '../api';
 import Modal from '../components/Modal';
@@ -20,6 +20,12 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
   const [genreValue, setGenreValue] = useState("");
   const [genreSaving, setGenreSaving] = useState(false);
   const { play } = useGlobalAudio();
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 640);
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   const handleSave = async (fd, id) => {
     try {
@@ -97,41 +103,67 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
       }
     }), [songs, search, filterGenre, sortBy, listenTimes]);
 
+  const searchInput = (
+    <div style={{position:"relative",flex:isMobile?1:undefined,minWidth:isMobile?0:undefined}}>
+      <span style={{position:"absolute",left:10,top:10,color:"#6b6b80",fontSize:12,pointerEvents:"none",zIndex:1}}>⌕</span>
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="search..."
+        style={{width:"100%",background:"#14142a",border:"1px solid #2a2a45",borderRadius:10,padding:"9px 10px 9px 28px",color:"#e2e8f0",fontSize:12,outline:"none",transition:"border-color 0.2s, box-shadow 0.2s",boxSizing:"border-box"}}
+        onFocus={e=>{e.target.style.borderColor="#4338ca";e.target.style.boxShadow="0 0 0 3px rgba(67,56,202,0.15)"}}
+        onBlur={e=>{e.target.style.borderColor="#2a2a45";e.target.style.boxShadow="none"}} />
+    </div>
+  );
+  const genreSelect = (
+    <select value={filterGenre} onChange={e=>setFilterGenre(e.target.value)} style={{background:"#14142a",border:"1px solid #2a2a45",borderRadius:10,padding:"9px 10px",color:"#e2e8f0",fontSize:12,cursor:"pointer",appearance:"none",flex:isMobile?1:undefined,minWidth:isMobile?0:undefined,width:isMobile?undefined:"100%"}}>
+      {usedGenres.map(g=><option key={g} value={g}>{g==="All"?"Any":g==="No Genre"?"No genre":g}</option>)}
+    </select>
+  );
+  const sortSelect = (
+    <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{background:"#14142a",border:"1px solid #2a2a45",borderRadius:10,padding:"9px 10px",color:"#e2e8f0",fontSize:12,cursor:"pointer",appearance:"none",flex:isMobile?1:undefined,minWidth:isMobile?0:undefined,width:isMobile?undefined:"100%"}}>
+      <option value="date-desc">Newest</option>
+      <option value="date-asc">Oldest</option>
+      <option value="title">A → Z</option>
+      <option value="listened">Most listened</option>
+    </select>
+  );
+  const bulkTagBtn = (
+    <button onClick={selectMode ? exitSelectMode : ()=>setSelectMode(true)}
+      style={{background:selectMode?"#4338ca20":"#4338ca10",border:"1px solid "+(selectMode?"#4338ca":"#4338ca50"),borderRadius:10,padding:"9px 10px",color:"#818cf8",fontSize:11,cursor:"pointer",width:isMobile?"auto":"100%",textAlign:"left",fontWeight:500,whiteSpace:"nowrap"}}>
+      {selectMode ? "✕ cancel" : "☐ bulk tag"}
+    </button>
+  );
+
   return (
-    <div style={{display:"flex",gap:16,alignItems:"flex-start"}}>
-      {/* Sidebar — always visible on the left */}
-      <div style={{position:"sticky",top:(stickyTop||0)+40,width:170,flexShrink:0,display:"flex",flexDirection:"column",gap:10,paddingTop:8,zIndex:10}}>
-        <div style={{position:"relative"}}>
-          <span style={{position:"absolute",left:10,top:10,color:"#6b6b80",fontSize:12,pointerEvents:"none",zIndex:1}}>⌕</span>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="search..."
-            style={{width:"100%",background:"#14142a",border:"1px solid #2a2a45",borderRadius:10,padding:"9px 10px 9px 28px",color:"#e2e8f0",fontSize:12,outline:"none",transition:"border-color 0.2s, box-shadow 0.2s"}}
-            onFocus={e=>{e.target.style.borderColor="#4338ca";e.target.style.boxShadow="0 0 0 3px rgba(67,56,202,0.15)"}}
-            onBlur={e=>{e.target.style.borderColor="#2a2a45";e.target.style.boxShadow="none"}} />
+    <div style={{display:"flex",flexDirection:isMobile?"column":"row",gap:isMobile?10:16,alignItems:isMobile?"stretch":"flex-start"}}>
+      {/* Controls — top bar on mobile, sidebar on desktop */}
+      {isMobile ? (
+        <div style={{display:"flex",flexDirection:"column",gap:8,zIndex:10,position:"sticky",top:(stickyTop||0)+40,background:"#0a0a14",paddingTop:8,paddingBottom:4}}>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            {searchInput}
+            {bulkTagBtn}
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            {genreSelect}
+            {sortSelect}
+          </div>
         </div>
-        <div style={{color:"#8a8aa0",fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em",marginTop:4}}>Genre</div>
-        <select value={filterGenre} onChange={e=>setFilterGenre(e.target.value)} style={{background:"#14142a",border:"1px solid #2a2a45",borderRadius:10,padding:"9px 10px",color:"#e2e8f0",fontSize:12,cursor:"pointer",appearance:"none",width:"100%"}}>
-          {usedGenres.map(g=><option key={g} value={g}>{g==="All"?"Any":g==="No Genre"?"No genre":g}</option>)}
-        </select>
-        <div style={{color:"#8a8aa0",fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em",marginTop:4}}>Sorting</div>
-        <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{background:"#14142a",border:"1px solid #2a2a45",borderRadius:10,padding:"9px 10px",color:"#e2e8f0",fontSize:12,cursor:"pointer",appearance:"none",width:"100%"}}>
-          <option value="date-desc">Newest first</option>
-          <option value="date-asc">Oldest first</option>
-          <option value="title">A → Z</option>
-          <option value="listened">Most listened</option>
-        </select>
-        <button onClick={selectMode ? exitSelectMode : ()=>setSelectMode(true)}
-          style={{background:selectMode?"#4338ca20":"#4338ca10",border:"1px solid "+(selectMode?"#4338ca":"#4338ca50"),borderRadius:10,padding:"9px 10px",color:selectMode?"#818cf8":"#818cf8",fontSize:11,cursor:"pointer",width:"100%",textAlign:"left",marginTop:10,fontWeight:500}}>
-          {selectMode ? "✕ cancel select" : "☐ bulk tag"}
-        </button>
-      </div>
+      ) : (
+        <div style={{position:"sticky",top:(stickyTop||0)+40,width:170,flexShrink:0,display:"flex",flexDirection:"column",gap:10,paddingTop:8,zIndex:10}}>
+          {searchInput}
+          <div style={{color:"#8a8aa0",fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em",marginTop:4}}>Genre</div>
+          {genreSelect}
+          <div style={{color:"#8a8aa0",fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em",marginTop:4}}>Sorting</div>
+          {sortSelect}
+          <div style={{marginTop:10}}>{bulkTagBtn}</div>
+        </div>
+      )}
 
       {/* Song list — takes remaining space */}
       <div style={{flex:1,minWidth:0}}>
         {/* Action bar above songs */}
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,gap:8}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,flex:1}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,gap:8,flexWrap:"wrap"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
             {selectMode && (
-              <div style={{display:"flex",alignItems:"center",gap:6,background:"#12121f",border:"1px solid #1e1e35",borderRadius:8,padding:"6px 10px",animation:"fadeUp 0.2s ease-out"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,background:"#12121f",border:"1px solid #1e1e35",borderRadius:8,padding:"6px 10px",animation:"fadeUp 0.2s ease-out",flexWrap:"wrap"}}>
                 <button onClick={()=>setSelectedIds(new Set(filtered.map(s=>s.id)))} style={{background:"none",border:"1px solid #2a2a45",borderRadius:6,padding:"4px 8px",color:"#6b7280",fontSize:9,cursor:"pointer"}}
                   onMouseEnter={e=>e.target.style.color="#818cf8"} onMouseLeave={e=>e.target.style.color="#6b7280"}>all</button>
                 <button onClick={()=>setSelectedIds(new Set())} style={{background:"none",border:"1px solid #2a2a45",borderRadius:6,padding:"4px 8px",color:"#6b7280",fontSize:9,cursor:"pointer"}}
