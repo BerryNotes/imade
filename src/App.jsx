@@ -4,14 +4,17 @@ import BattleTab from './tabs/BattleTab';
 import AuthScreen from './components/AuthScreen';
 import api from './api';
 
-const LibraryTab = React.lazy(() => import('./tabs/LibraryTab'));
-const UploadTab = React.lazy(() => import('./tabs/UploadTab'));
-const RankingsTab = React.lazy(() => import('./tabs/RankingsTab'));
-const StatsTab = React.lazy(() => import('./tabs/StatsTab'));
-const SettingsTab = React.lazy(() => import('./tabs/SettingsTab'));
-const PlayerTab = React.lazy(() => import('./tabs/PlayerTab'));
-const PlaylistsTab = React.lazy(() => import('./tabs/PlaylistsTab'));
-const VisualizerTab = React.lazy(() => import('./tabs/VisualizerTab'));
+// Auto-reload on stale chunk (after rebuild, old chunk filenames 404)
+const lazyRetry = (fn) => React.lazy(() => fn().catch(() => { window.location.reload(); return new Promise(() => {}); }));
+
+const LibraryTab = lazyRetry(() => import('./tabs/LibraryTab'));
+const UploadTab = lazyRetry(() => import('./tabs/UploadTab'));
+const RankingsTab = lazyRetry(() => import('./tabs/RankingsTab'));
+const StatsTab = lazyRetry(() => import('./tabs/StatsTab'));
+const SettingsTab = lazyRetry(() => import('./tabs/SettingsTab'));
+const PlayerTab = lazyRetry(() => import('./tabs/PlayerTab'));
+const PlaylistsTab = lazyRetry(() => import('./tabs/PlaylistsTab'));
+const VisualizerTab = lazyRetry(() => import('./tabs/VisualizerTab'));
 
 const BATCH_SIZE = 5;
 const isElectron = !!window.electronAPI;
@@ -476,6 +479,7 @@ function App() {
                   rowDensity={rowDensity} setRowDensity={(v) => persistSetting("rowDensity", v, setRowDensity)}
                   listenTimes={listenTimes} setListenTimes={setListenTimes} listenTimesRef={listenTimesRef}
                   user={user} setUser={setUser} onLogout={() => { setShowSettings(false); handleLogout(); }}
+                  planInfo={planInfo}
                 />
               </React.Suspense>
             </div>
@@ -565,10 +569,10 @@ function App() {
               setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx} switchTab={switchTab}
               playlists={playlists} showToast={showToast} rowDensity={rowDensity} />}
             {tab === "upload" && <UploadTab
-              onRefresh={refresh} genres={genres} songs={songs}
+              onRefresh={refresh} genres={genres} songs={songs} comparisons={comparisons}
               uploadFiles={uploadFiles} setUploadFiles={setUploadFiles}
               uploading={uploading} uploadDone={uploadDone} setUploadDone={setUploadDone}
-              uploadProgress={uploadProgress} startUpload={startUpload} planInfo={planInfo} />}
+              uploadProgress={uploadProgress} startUpload={startUpload} planInfo={planInfo} switchTab={switchTab} />}
             {tab === "playlists" && <PlaylistsTab songs={songs} playlists={playlists} genres={genres} comparisons={comparisons} onRefresh={refresh} showToast={showToast}
               setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx} />}
             {tab === "rankings" && <RankingsTab songs={songs} comparisons={comparisons} onRefresh={refresh} showToast={showToast}

@@ -273,7 +273,14 @@ function getRefinementPair(standings, compMap, genre, compCount) {
     }
   }
 
-  return bestPair && bestPair[0].id !== bestPair[1].id ? bestPair : null;
+  if (bestPair && bestPair[0].id !== bestPair[1].id) return bestPair;
+
+  // All unique pairs exhausted — re-compare close Elo pairs for refinement
+  if (sorted.length >= 2) {
+    const i = Math.floor(Math.random() * (sorted.length - 1));
+    return [sorted[i], sorted[i + 1]];
+  }
+  return null;
 }
 
 export { useRanking, getPlacementPair, getRefinementPair };

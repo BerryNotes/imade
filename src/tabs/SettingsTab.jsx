@@ -4,7 +4,7 @@ import api from '../api';
 
 function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToast, showVariance, setShowVariance,
   sessionLength, setSessionLength, bracketSize, setBracketSize, showWinLoss, setShowWinLoss,
-  rowDensity, setRowDensity, listenTimes, setListenTimes, listenTimesRef, user, setUser, onLogout }) {
+  rowDensity, setRowDensity, listenTimes, setListenTimes, listenTimesRef, user, setUser, onLogout, planInfo }) {
   const [newGenre, setNewGenre] = useState("");
   const [editingGenre, setEditingGenre] = useState(null);
   const [editName, setEditName] = useState("");
@@ -156,7 +156,11 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
                 </div>
                 <div style={{flex:1}}>
                   <div style={{color:"#e2e8f0",fontSize:14,fontWeight:600}}>{user.username}</div>
-                  <div style={{color:"#6b6b80",fontSize:12}}>Logged in</div>
+                  <div style={{color:"#6b6b80",fontSize:12}}>
+                    {planInfo ? (
+                      <span>{planInfo.plan === "full" ? "Full" : "Trial"}{planInfo.version ? " \u00B7 v" + planInfo.version : ""}</span>
+                    ) : "Logged in"}
+                  </div>
                 </div>
                 <button onClick={() => { setEditUsername(user.username); setEditPassword(""); setEditingProfile(true); }}
                   style={{background:"none",border:"1px solid #2a2a45",borderRadius:8,padding:"7px 14px",color:"#8a8aa0",fontSize:12,cursor:"pointer"}}

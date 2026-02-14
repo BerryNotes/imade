@@ -146,6 +146,7 @@ function BattleTab({ songs, comparisons, onRefresh, showToast, savedPair, setSav
     setFocusedSongIds(null);
     focusedRefineTarget.current = refineTarget;
     sessionHadUnranked.current = unrankedCount > 0;
+    placementCompsRef.current = 0;
     if (unrankedCount >= 2) {
       setSessionPhase("tier");
     } else if (unrankedCount === 1) {
@@ -156,6 +157,9 @@ function BattleTab({ songs, comparisons, onRefresh, showToast, savedPair, setSav
     }
   };
 
+  // Track actual placement comparisons for accurate progress
+  const placementCompsRef = useRef(0);
+
   // Phase transitions
   const advanceFromTier = () => {
     // After tier sort batch, check if there are still unranked songs for quick rate
@@ -163,11 +167,13 @@ function BattleTab({ songs, comparisons, onRefresh, showToast, savedPair, setSav
     if (stillUnranked > 0) {
       setSessionPhase("quick");
     } else {
+      placementCompsRef.current = sessionTotalRef.current;
       setSessionPhase("refine");
     }
   };
 
   const advanceFromQuick = () => {
+    placementCompsRef.current = sessionTotalRef.current;
     setSessionPhase("refine");
   };
 
@@ -180,8 +186,6 @@ function BattleTab({ songs, comparisons, onRefresh, showToast, savedPair, setSav
   // Submit comparison helper (used by all modes)
   const submitComparison = async (winnerId, loserId, source = "classic") => {
     if (winnerId === loserId) return false;
-    const key = [winnerId, loserId].sort().join("|");
-    if (compMap[key]) return false;
     await api.post("/api/comparisons", { songA: winnerId, songB: loserId, winner: winnerId, source });
     sessionTotalRef.current++;
     setSessionCompTotal(prev => prev + 1);
@@ -243,11 +247,20 @@ function BattleTab({ songs, comparisons, onRefresh, showToast, savedPair, setSav
   const getSessionProgress = () => {
     if (!sessionPhase || sessionPhase === "summary") return 100;
     const hasPlacement = sessionHadUnranked.current;
-    // Estimate: each round = classicsPerRound + (bracketSize-1) comparisons
     const compsPerRound = classicsPerRound + (bracketSize - 1);
     const refineTotal = totalRounds * compsPerRound;
-    const estimatedTotal = hasPlacement ? refineTotal + 20 : refineTotal;
-    return Math.min(99, Math.round(sessionCompTotal / estimatedTotal * 99));
+
+    if (hasPlacement && (sessionPhase === "tier" || sessionPhase === "quick")) {
+      // Placement phase: 0% → 50% (we don't know the total upfront, so scale against refineTotal)
+      return Math.min(50, Math.round(sessionCompTotal / Math.max(refineTotal, 1) * 50));
+    }
+    if (hasPlacement) {
+      // Refine phase after placement: 50% → 99%
+      const refineComps = sessionCompTotal - placementCompsRef.current;
+      return 50 + Math.min(49, Math.round(refineComps / Math.max(refineTotal, 1) * 49));
+    }
+    // No placement (all songs already ranked): 0% → 99%
+    return Math.min(99, Math.round(sessionCompTotal / Math.max(refineTotal, 1) * 99));
   };
   const sessionPct = getSessionProgress();
 

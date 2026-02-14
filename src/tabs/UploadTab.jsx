@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 
-function UploadTab({ onRefresh, genres, songs, uploadFiles, setUploadFiles, uploading, uploadDone, setUploadDone, uploadProgress, startUpload, showToast, planInfo }) {
+function UploadTab({ onRefresh, genres, songs, comparisons, uploadFiles, setUploadFiles, uploading, uploadDone, setUploadDone, uploadProgress, startUpload, showToast, planInfo, switchTab }) {
   const [dragging, setDragging] = useState(false);
   const [dupes, setDupes] = useState([]);
   const inputRef = useRef(null);
@@ -146,8 +146,18 @@ function UploadTab({ onRefresh, genres, songs, uploadFiles, setUploadFiles, uplo
       {uploadDone && uploadFiles.length === 0 && !uploading && (
         <div style={{textAlign:"center",padding:40,animation:"fadeUp 0.4s ease-out"}}>
           <div style={{fontSize:40,marginBottom:12}}>✓</div>
-          <p style={{color:"#818cf8",fontSize:16,}}>Songs uploaded successfully!</p>
-          <p style={{color:"#6b6b80",fontSize:13,marginTop:4}}>Check the Library tab to see them</p>
+          <p style={{color:"#818cf8",fontSize:16}}>Songs uploaded successfully!</p>
+          {songs.length >= 2 && (!comparisons || comparisons.length === 0) && switchTab ? (
+            <div style={{marginTop:16}}>
+              <p style={{color:"#6b6b80",fontSize:13,marginBottom:16}}>Now rank them with head-to-head comparisons</p>
+              <button onClick={() => switchTab("battle")}
+                style={{padding:"12px 32px",borderRadius:12,background:"linear-gradient(135deg,#4338ca,#6366f1)",border:"none",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer",boxShadow:"0 4px 20px rgba(99,102,241,0.3)"}}>
+                Start Ranking
+              </button>
+            </div>
+          ) : (
+            <p style={{color:"#6b6b80",fontSize:13,marginTop:4}}>Check the Library tab to see them</p>
+          )}
         </div>
       )}
     </div>

@@ -133,7 +133,7 @@ function drawChart(canvas, stats, standings, chartZoom, chartPan, showFitLine, c
     }
   }
 
-  const genreColor = stats.genreColorMap;
+  const genreColor = (stats?.genreColorMap || baseGenreColorMap);
 
   // Draw points
   const drawnPoints = [];
@@ -267,7 +267,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
   const ranking = useRanking(songs, comparisons);
   const { standings } = ranking;
   const tournament = ranking; // alias
-  const [statsSubTab, setStatsSubTab] = useState("improvement");
+  const [statsSubTab, setStatsSubTab] = useState(() => comparisons.length > 0 ? "improvement" : "listening");
   const chartRef = useRef(null);
   const chartAudio = useGlobalAudio();
   const [, forceAudioUpdate] = useState(0);
@@ -299,6 +299,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
   const [showFitLine, setShowFitLine] = useState(false);
   const [chartGenre, setChartGenre] = useState("");
   const [hoveredBucket, setHoveredBucket] = useState(null);
+  const [hoveredMonth, setHoveredMonth] = useState(null);
   const chartPointsRef = useRef([]);
   const fitLineRef = useRef(null);
   const chartViewRef = useRef({ fullMinDate: 0, fullMaxDate: 1, pad: { left: 50, right: 20 }, plotW: 100 });
@@ -311,6 +312,16 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef(null);
 
+
+  // Genre color map — available even without comparisons (for Listening tab)
+  const colorPaletteBase = ["#818cf8","#f59e0b","#22c55e","#ef4444","#06b6d4","#ec4899","#8b5cf6","#f97316","#14b8a6","#64748b","#a3e635","#fb7185"];
+  const hashStrBase = (s) => { let h = 0; for (let i = 0; i < s.length; i++) { h = ((h << 5) - h) + s.charCodeAt(i); h |= 0; } return Math.abs(h); };
+  const baseGenreColorMap = useMemo(() => {
+    const allGenres = [...new Set(songs.map(s => s.genre || "untagged"))].sort();
+    const map = {};
+    allGenres.forEach(g => map[g] = colorPaletteBase[hashStrBase(g) % colorPaletteBase.length]);
+    return map;
+  }, [songs]);
 
   const stats = useMemo(() => {
     if (comparisons.length === 0) return null;
@@ -509,7 +520,8 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
       const key = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}`;
       const songs = monthMap[key] || [];
       const avgElo = songs.length > 0 ? songs.reduce((s, x) => s + x.elo, 0) / songs.length : null;
-      months.push({ key, year: cur.getFullYear(), month: cur.getMonth(), count: songs.length, avgElo: avgElo !== null ? Math.round(avgElo) : null });
+      const topSongs = songs.sort((a, b) => b.elo - a.elo).slice(0, 5);
+      months.push({ key, year: cur.getFullYear(), month: cur.getMonth(), count: songs.length, avgElo: avgElo !== null ? Math.round(avgElo) : null, topSongs });
       cur.setMonth(cur.getMonth() + 1);
     }
 
@@ -640,24 +652,20 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
     drawChart(chartRef.current, stats, standings, chartZoom, chartPan, showFitLine, chartGenre, selectedSongs, chartViewRef, chartPointsRef, fitLineRef);
   }, [stats, standings, chartZoom, chartPan, showFitLine, chartGenre, selectedSongs]);
 
-  if (!stats) return (
-    <div style={{textAlign:"center",padding:80}}>
-      <p style={{color:"#6b7280",fontSize:18}}>No comparisons yet</p>
-      <p style={{color:"#6b6b80",fontSize:14,marginTop:4}}>Complete some comparisons first</p>
-    </div>
-  );
+  const hasComparisons = comparisons.length > 0;
 
   const cardStyle = {background:"#14142a",border:"1px solid #1e1e35",borderRadius:12,padding:16};
   const headStyle = {color:"#6b7280",fontSize:12,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12};
-  const maxGenreCount = Math.max(...Object.values(stats.genreCounts));
+  const maxGenreCount = stats ? Math.max(...Object.values(stats.genreCounts)) : 0;
 
-  const subTabs = [
+  const allSubTabs = [
     { id: "improvement", label: "Improvement", icon: "\u{1F4C8}" },
     { id: "breakdown", label: "Breakdown", icon: "\u{1F4CA}" },
     { id: "listening", label: "Listening", icon: "\u{1F3A7}" },
     { id: "growth", label: "Growth", icon: "\u{1F680}" },
     { id: "portfolio", label: "Portfolio", icon: "\u{1F3AF}" },
   ];
+  const subTabs = hasComparisons ? allSubTabs : allSubTabs.filter(t => t.id === "listening");
 
   return (
     <div style={{display:"flex",gap:16}}>
@@ -687,7 +695,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
             { label: "total songs", value: songs.length },
             { label: "comparisons", value: comparisons.length },
             { label: "progress", value: Math.round(songs.reduce((sum, s) => sum + Math.min(ranking.compCount[s.id] || 0, 3), 0) / Math.max(songs.length * 3, 1) * 100) + "%" },
-            { label: "genres", value: Object.keys(stats.genreCounts).length },
+            { label: "genres", value: stats ? Object.keys(stats.genreCounts).length : Object.keys(baseGenreColorMap).length },
           ].map(s => (
             <div key={s.label} style={{background:"#14142a",border:"1px solid #1e1e35",borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
               <div style={{color:"#818cf8",fontSize:20,fontWeight:700}}>{s.value}</div>
@@ -697,7 +705,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
         </div>
 
         {/* ===== IMPROVEMENT TAB ===== */}
-        <div style={{display: statsSubTab === "improvement" ? "block" : "none"}}>
+        {stats && <div style={{display: statsSubTab === "improvement" ? "block" : "none"}}>
           {/* === Above Average Ring === */}
           {winRateTrends && (
             <div ref={cardRef("improvement",0)} style={{...cardStyle,marginBottom:16,display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
@@ -915,7 +923,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
               {stats.allChartGenres.map(g => (
                 <button key={g} onClick={()=>setChartGenre(prev => prev === g ? "" : g)}
                   style={{display:"flex",alignItems:"center",gap:4,background:"none",border:"1px solid "+(chartGenre===g?"#818cf8":"#1e1e35"),borderRadius:6,padding:"3px 8px",cursor:"pointer",opacity:chartGenre&&chartGenre!==g?0.4:1,transition:"opacity 0.15s"}}>
-                  <span style={{width:8,height:8,borderRadius:2,background:stats.genreColorMap[g],display:"inline-block",flexShrink:0}} />
+                  <span style={{width:8,height:8,borderRadius:2,background:(stats?.genreColorMap || baseGenreColorMap)[g],display:"inline-block",flexShrink:0}} />
                   <span style={{color:chartGenre===g?"#e2e8f0":"#6b7280",fontSize:10}}>{g}</span>
                 </button>
               ))}
@@ -925,10 +933,10 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
         </div>
       )}
 
-          </div>
+          </div>}
 
         {/* ===== BREAKDOWN TAB ===== */}
-        <div style={{display: statsSubTab === "breakdown" ? "block" : "none"}}>
+        {stats && <div style={{display: statsSubTab === "breakdown" ? "block" : "none"}}>
       <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
       <div ref={cardRef("breakdown",0)} style={{...cardStyle,flex:"1 1 240px",minWidth:200}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
@@ -944,7 +952,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
             <div key={g} style={{marginBottom:6}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:1}}>
                 <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  <span style={{width:7,height:7,borderRadius:2,background:stats.genreColorMap[g]||"#818cf8",display:"inline-block",flexShrink:0}} />
+                  <span style={{width:7,height:7,borderRadius:2,background:(stats?.genreColorMap || baseGenreColorMap)[g]||"#818cf8",display:"inline-block",flexShrink:0}} />
                   <span style={{color:"#e2e8f0",fontSize:11}}>{g}</span>
                 </div>
                 <div style={{display:"flex",gap:10}}>
@@ -1120,7 +1128,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
               </div>
             </div>
           )}
-          </div>
+          </div>}
 
         {/* ===== LISTENING TAB ===== */}
         <div style={{display: statsSubTab === "listening" ? "block" : "none"}}>
@@ -1195,7 +1203,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
                         <span style={{color:"#6b6b80",fontSize:10}}>{formatDuration(time)}</span>
                       </div>
                       <div style={{height:3,background:"#1e1e35",borderRadius:2,overflow:"hidden",width:"80%"}}>
-                        <div style={{width:(time/maxGenreTime*100)+"%",height:"100%",background:stats.genreColorMap[g]||"#818cf8",borderRadius:2,opacity:0.7}} />
+                        <div style={{width:(time/maxGenreTime*100)+"%",height:"100%",background:(stats?.genreColorMap || baseGenreColorMap)[g]||"#818cf8",borderRadius:2,opacity:0.7}} />
                       </div>
                     </div>
                   ))}
@@ -1223,7 +1231,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
                           <span style={{color:"#6b6b80",fontSize:10}}>{formatDuration(Math.round(g.perSong))}/track</span>
                         </div>
                         <div style={{height:3,background:"#1e1e35",borderRadius:2,overflow:"hidden",width:"80%"}}>
-                          <div style={{width:(g.perSong/maxPerSong*100)+"%",height:"100%",background:stats.genreColorMap[g.genre]||"#818cf8",borderRadius:2,opacity:0.7}} />
+                          <div style={{width:(g.perSong/maxPerSong*100)+"%",height:"100%",background:(stats?.genreColorMap || baseGenreColorMap)[g.genre]||"#818cf8",borderRadius:2,opacity:0.7}} />
                         </div>
                       </div>
                     ))}
@@ -1237,7 +1245,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
           </div>
 
         {/* ===== GROWTH TAB ===== */}
-        <div style={{display: statsSubTab === "growth" ? "block" : "none"}}>
+        {stats && <div style={{display: statsSubTab === "growth" ? "block" : "none"}}>
           {creativeStreaks ? (
             <div>
               {/* Month Grid Calendar */}
@@ -1247,12 +1255,38 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
                   {creativeStreaks.months.map(m => {
                     const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
                     const bg = m.count === 0 ? "#1e1e35" : m.avgElo >= creativeStreaks.overallAvg ? `rgba(34,197,94,${Math.min(0.7, 0.2 + (m.avgElo - creativeStreaks.overallAvg) / 300)})` : `rgba(239,68,68,${Math.min(0.7, 0.2 + (creativeStreaks.overallAvg - m.avgElo) / 300)})`;
+                    const isHovered = hoveredMonth === m.key;
                     return (
-                      <div key={m.key} title={`${monthNames[m.month]} ${m.year}: ${m.count} song${m.count !== 1 ? "s" : ""}${m.avgElo !== null ? ", avg " + m.avgElo : ""}`}
-                        style={{background:bg,borderRadius:6,padding:"6px 4px",textAlign:"center",minHeight:40,display:"flex",flexDirection:"column",justifyContent:"center"}}>
-                        <div style={{color:"#9a9ab0",fontSize:8}}>{monthNames[m.month]} {String(m.year).slice(2)}</div>
-                        <div style={{color:m.count > 0 ? "#e2e8f0" : "#5a5a70",fontSize:13,fontWeight:700}}>{m.count || "-"}</div>
-                        {m.avgElo !== null && <div style={{color:"#9a9ab0",fontSize:8}}>{m.avgElo}</div>}
+                      <div key={m.key} style={{position:"relative"}}
+                        onMouseEnter={() => setHoveredMonth(m.key)} onMouseLeave={() => setHoveredMonth(null)}>
+                        <div style={{background:bg,borderRadius:6,padding:"6px 4px",textAlign:"center",minHeight:40,display:"flex",flexDirection:"column",justifyContent:"center",
+                          border: isHovered ? "1px solid #818cf8" : "1px solid transparent",transition:"border-color 0.15s",cursor:m.count > 0 ? "default" : undefined}}>
+                          <div style={{color:"#9a9ab0",fontSize:8}}>{monthNames[m.month]} {String(m.year).slice(2)}</div>
+                          <div style={{color:m.count > 0 ? "#e2e8f0" : "#5a5a70",fontSize:13,fontWeight:700}}>{m.count || "-"}</div>
+                          {m.avgElo !== null && <div style={{color:"#9a9ab0",fontSize:8}}>{m.avgElo}</div>}
+                        </div>
+                        {isHovered && m.count > 0 && (
+                          <div style={{position:"absolute",bottom:"calc(100% + 6px)",left:"50%",transform:"translateX(-50%)",
+                            background:"#1a1a30",border:"1px solid #2a2a45",borderRadius:10,padding:"10px 14px",zIndex:20,
+                            minWidth:160,boxShadow:"0 8px 24px rgba(0,0,0,0.5)",pointerEvents:"none"}}>
+                            <div style={{color:"#e2e8f0",fontSize:12,fontWeight:600,marginBottom:6}}>{monthNames[m.month]} {m.year}</div>
+                            <div style={{display:"flex",gap:16,marginBottom:m.topSongs.length > 0 ? 8 : 0}}>
+                              <div><div style={{color:"#6b7280",fontSize:9,textTransform:"uppercase"}}>songs</div><div style={{color:"#818cf8",fontSize:14,fontWeight:700}}>{m.count}</div></div>
+                              <div><div style={{color:"#6b7280",fontSize:9,textTransform:"uppercase"}}>avg elo</div><div style={{color:m.avgElo >= creativeStreaks.overallAvg ? "#22c55e" : "#ef4444",fontSize:14,fontWeight:700}}>{m.avgElo}</div></div>
+                            </div>
+                            {m.topSongs.length > 0 && (
+                              <div style={{borderTop:"1px solid #2a2a45",paddingTop:6}}>
+                                <div style={{color:"#6b7280",fontSize:9,textTransform:"uppercase",marginBottom:4}}>{m.topSongs.length < m.count ? "top songs" : "songs"}</div>
+                                {m.topSongs.map(s => (
+                                  <div key={s.id} style={{display:"flex",justifyContent:"space-between",gap:8,marginBottom:2}}>
+                                    <span style={{color:"#c4c4d4",fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.title}</span>
+                                    <span style={{color:"#6b7280",fontSize:10,flexShrink:0}}>{s.elo}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1306,10 +1340,10 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
               <p style={{color:"#6b6b80",fontSize:14}}>Need at least 5 ranked songs with dates for growth analysis</p>
             </div>
           )}
-        </div>
+        </div>}
 
         {/* ===== PORTFOLIO TAB ===== */}
-        <div style={{display: statsSubTab === "portfolio" ? "block" : "none"}}>
+        {stats && <div style={{display: statsSubTab === "portfolio" ? "block" : "none"}}>
           {autoAlbums ? (
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:16}}>
               {autoAlbums.map((album, ai) => (
@@ -1362,7 +1396,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
               <p style={{color:"#6b6b80",fontSize:14}}>Need at least 3 ranked songs for auto albums</p>
             </div>
           )}
-        </div>
+        </div>}
       </div>
     </div>
   );

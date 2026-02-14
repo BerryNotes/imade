@@ -82,6 +82,7 @@ app.post("/api/register", async (req, res) => {
     if (!fs.existsSync(userUploads)) fs.mkdirSync(userUploads, { recursive: true });
 
     req.session.userId = user.id;
+    db.logActivity(user.id, "register", null, req.ip);
     res.json({ user: { id: user.id, username: user.username } });
   } catch (e) {
     console.error("Register error:", e);
@@ -124,6 +125,7 @@ app.post("/api/login", async (req, res) => {
     req.session.save((err) => {
       if (err) console.error("Session save error:", err);
       console.log(`[LOGIN] user="${user.username}" id=${user.id} sessionId=${req.sessionID}`);
+      db.logActivity(user.id, "login", null, req.ip);
       res.json({ user: { id: user.id, username: user.username } });
     });
   } catch (e) {
@@ -133,6 +135,8 @@ app.post("/api/login", async (req, res) => {
 });
 
 app.post("/api/logout", (req, res) => {
+  const uid = req.session?.userId;
+  if (uid) db.logActivity(uid, "logout", null, req.ip);
   req.session.destroy(() => {
     res.clearCookie("connect.sid");
     res.json({ success: true });
@@ -160,10 +164,11 @@ app.get("/api/plan", auth, (req, res) => {
   const user = db.getUserById(userId);
   const plan = user?.plan || "trial";
   const songCount = db.getSongs(userId).length;
+  const version = require("./package.json").version;
   if (plan === "full") {
-    res.json({ plan: "full", songLimit: null, songCount, remaining: null });
+    res.json({ plan: "full", songLimit: null, songCount, remaining: null, version });
   } else {
-    res.json({ plan: "trial", songLimit: TRIAL_SONG_LIMIT, songCount, remaining: TRIAL_SONG_LIMIT - songCount });
+    res.json({ plan: "trial", songLimit: TRIAL_SONG_LIMIT, songCount, remaining: TRIAL_SONG_LIMIT - songCount, version });
   }
 });
 
@@ -267,6 +272,7 @@ app.post("/api/songs/bulk", auth, upload.array("audio", 200), (req, res) => {
     newSongs.push(song);
   }
 
+  if (newSongs.length > 0) db.logActivity(userId, "song_bulk_upload", newSongs.length + " songs: " + newSongs.map(s => s.title).join(", "), req.ip);
   res.json(newSongs);
 });
 
@@ -286,6 +292,7 @@ app.post("/api/songs", auth, upload.single("audio"), (req, res) => {
     audioName: req.file ? req.file.originalname : null,
   };
   db.insertSong(song, userId);
+  db.logActivity(userId, "song_create", song.title, req.ip);
   res.json(song);
 });
 
@@ -339,6 +346,7 @@ app.delete("/api/songs/:id", auth, (req, res) => {
     if (fs.existsSync(p)) fs.unlinkSync(p);
   }
   db.deleteSong(req.params.id, userId);
+  db.logActivity(userId, "song_delete", song?.title || req.params.id, req.ip);
   res.json({ success: true });
 });
 
@@ -727,6 +735,7 @@ app.put("/api/admin/users/:id", requireAdmin, async (req, res) => {
 app.delete("/api/admin/users/:id", requireAdmin, (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (id === 1) return res.status(400).json({ error: "Cannot delete primary user" });
+  const deletedUser = db.getUserById(id);
   // Clean up user's upload files
   const userUploadsDir = path.join(UPLOADS_DIR, String(id));
   if (fs.existsSync(userUploadsDir)) fs.rmSync(userUploadsDir, { recursive: true, force: true });
@@ -745,6 +754,14 @@ app.get("/api/admin/users/:id/songs", requireAdmin, (req, res) => {
   res.json(ranked);
 });
 
+app.get("/api/admin/activity", requireAdmin, (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+  const offset = parseInt(req.query.offset, 10) || 0;
+  const logs = db.getActivityLog(limit, offset);
+  const total = db.getActivityLogCount();
+  res.json({ logs, total });
+});
+
 // ---- ADMIN PANEL (separate static site) ----
 
 const ADMIN_DIR = path.join(__dirname, "admin");
@@ -752,10 +769,18 @@ app.use("/admin", auth, requireAdmin, express.static(ADMIN_DIR));
 
 // ---- FRONTEND ----
 
-app.use(express.static(path.join(__dirname, "dist-client")));
+app.use(express.static(path.join(__dirname, "dist-client"), {
+  setHeaders: (res, filePath) => {
+    // Hashed assets can be cached forever; index.html must always revalidate
+    if (filePath.endsWith(".html")) {
+      res.setHeader("Cache-Control", "no-cache");
+    }
+  }
+}));
 app.get("*", (req, res) => {
   // Don't catch API routes
   if (req.path.startsWith("/api/")) return res.status(404).json({ error: "Not found" });
+  res.setHeader("Cache-Control", "no-cache");
   res.sendFile(path.join(__dirname, "dist-client", "index.html"));
 });
 

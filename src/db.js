@@ -90,6 +90,16 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_genres_user ON genres(user_id);
     CREATE INDEX IF NOT EXISTS idx_playlists_user ON playlists(user_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_expired ON sessions(expired);
+
+    CREATE TABLE IF NOT EXISTS activity_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      action TEXT NOT NULL,
+      detail TEXT,
+      ip TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_activity_created ON activity_log(created_at);
   `);
 }
 
@@ -452,6 +462,26 @@ function bulkReplace(userId, data) {
   tx();
 }
 
+// --- Activity log helpers ---
+
+function logActivity(userId, action, detail, ip) {
+  getDb().prepare(
+    "INSERT INTO activity_log (user_id, action, detail, ip) VALUES (?, ?, ?, ?)"
+  ).run(userId, action, detail || null, ip || null);
+}
+
+function getActivityLog(limit = 50, offset = 0) {
+  return getDb().prepare(`
+    SELECT a.id, a.user_id, u.username, a.action, a.detail, a.ip, a.created_at
+    FROM activity_log a LEFT JOIN users u ON a.user_id = u.id
+    ORDER BY a.id DESC LIMIT ? OFFSET ?
+  `).all(limit, offset);
+}
+
+function getActivityLogCount() {
+  return getDb().prepare("SELECT COUNT(*) AS count FROM activity_log").get().count;
+}
+
 module.exports = {
   getDb,
   createUser, getUserByUsername, getUserById, updateUserPlan, updateUserRole,
@@ -463,4 +493,5 @@ module.exports = {
   getListenTimes, updateListenTimes, deleteListenTimes,
   getSession, setSession, destroySession, cleanExpiredSessions,
   bulkReplace,
+  logActivity, getActivityLog, getActivityLogCount,
 };
