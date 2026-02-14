@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useRanking } from '../hooks/useRanking';
 import api from '../api';
 
@@ -20,6 +20,8 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
   const [showExportPlaylists, setShowExportPlaylists] = useState(false);
   const [saved, setSaved] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importDragging, setImportDragging] = useState(false);
+  const importInputRef = useRef(null);
   const [editUsername, setEditUsername] = useState("");
   const [editPassword, setEditPassword] = useState("");
   const [editingProfile, setEditingProfile] = useState(false);
@@ -391,17 +393,38 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
           {/* Backup */}
           <div style={sec}>
             <div style={secT}>💾 Backup</div>
-            <p style={{color:"#6b6b80",fontSize:12,marginBottom:12,marginTop:-8}}>Save a snapshot of everything — songs, rankings, playlists, and genres.</p>
+            <p style={{color:"#6b6b80",fontSize:12,marginBottom:12,marginTop:-8}}>Save a snapshot of everything — songs, rankings, playlists, genres, and listening history.</p>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
               <button onClick={exportBackup} style={{background:"linear-gradient(135deg,#4338ca,#6366f1)",border:"none",borderRadius:10,padding:"10px 18px",color:"#fff",fontSize:13,cursor:"pointer",fontWeight:600}}>download full backup</button>
               <button onClick={serverBackup} style={{background:"none",border:"1px solid #2a2a45",borderRadius:10,padding:"10px 18px",color:"#8a8aa0",fontSize:13,cursor:"pointer"}}
                 onMouseEnter={e=>e.target.style.color="#22c55e"} onMouseLeave={e=>e.target.style.color="#8a8aa0"}>server backup</button>
-              <label style={{background:"none",border:"1px solid #2a2a45",borderRadius:10,padding:"10px 18px",color:"#8a8aa0",fontSize:13,cursor:importing?"default":"pointer",opacity:importing?0.5:1,display:"inline-block"}}>
-                {importing ? "importing..." : "import backup"}
-                <input type="file" accept=".json" onChange={e=>{importBackup(e.target.files[0]);e.target.value="";}} style={{display:"none"}} disabled={importing} />
-              </label>
             </div>
-            <p style={{color:"#6b6b80",fontSize:11,marginTop:10}}>Full backup includes songs, comparisons, genres, and playlists as JSON. Import replaces all existing data.</p>
+          </div>
+
+          {/* Import */}
+          <div style={sec}>
+            <div style={secT}>📥 Import</div>
+            <p style={{color:"#6b6b80",fontSize:12,marginBottom:12,marginTop:-8}}>Restore from a backup file. This replaces all your current data.</p>
+            <div
+              onDrop={e=>{e.preventDefault();setImportDragging(false);const f=e.dataTransfer.files[0];if(f&&f.name.endsWith('.json'))importBackup(f);}}
+              onDragOver={e=>{e.preventDefault();setImportDragging(true);}}
+              onDragLeave={()=>setImportDragging(false)}
+              onClick={()=>importInputRef.current?.click()}
+              style={{
+                border:importDragging?"2px solid #818cf8":"2px dashed #2a2a45",
+                borderRadius:14,padding:"28px 20px",textAlign:"center",
+                cursor:importing?"default":"pointer",transition:"all 0.3s",
+                background:importDragging?"#4338ca11":"#0d0d1a",
+                opacity:importing?0.5:1,
+              }}
+            >
+              <input ref={importInputRef} type="file" accept=".json" onChange={e=>{importBackup(e.target.files[0]);e.target.value="";}} style={{display:"none"}} disabled={importing} />
+              <div style={{fontSize:28,marginBottom:8,opacity:0.5}}>{importing?"⏳":"📂"}</div>
+              <p style={{color:importing?"#818cf8":"#8a8aa0",fontSize:13,marginBottom:4}}>
+                {importing?"Importing...":"Drag & drop a backup file here"}
+              </p>
+              <p style={{color:"#5a5a70",fontSize:11}}>or click to browse · .json files only</p>
+            </div>
           </div>
 
           {/* Delete Data */}
