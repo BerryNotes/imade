@@ -1310,11 +1310,7 @@ function VisualizerTab({ songs, onFullscreen }) {
     for (let i = 0; i < data.length; i++) sum += data[i];
     const avg = sum / data.length / 255;
 
-    // Sphere glow — simple circle, no gradient
-    ctx.beginPath();
-    ctx.arc(cx, cy, baseR * (1.1 + avg * 0.3), 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(99,102,241,${(0.06 + avg * 0.08).toFixed(2)})`;
-    ctx.fill();
+    // (glow removed — was causing visible circle outline on cube FX)
 
     // 3D rotation helper: rotate around X (FX only) then Y then Z
     const cosRX = Math.cos(rotX), sinRX = Math.sin(rotX);
