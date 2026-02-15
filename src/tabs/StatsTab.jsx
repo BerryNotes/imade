@@ -1255,6 +1255,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
                   {(() => { const maxCount = Math.max(...creativeStreaks.months.map(m => m.count), 1); return creativeStreaks.months.map(m => {
                     const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
                     let bg = "#1e1e35";
+                    let glow = "none";
                     if (m.count > 0) {
                       const brightness = 0.15 + 0.85 * (m.count / maxCount);
                       const isAboveAvg = m.avgElo >= creativeStreaks.overallAvg;
@@ -1262,13 +1263,19 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
                       const g = isAboveAvg ? Math.round(140 + 57 * brightness) : Math.round(68 * (1 - brightness * 0.5));
                       const b = isAboveAvg ? Math.round(94 * brightness) : Math.round(68 * (1 - brightness * 0.3));
                       bg = `rgba(${r},${g},${b},${Math.min(0.9, 0.15 + 0.75 * brightness)})`;
+                      if (brightness > 0.5) {
+                        const glowColor = isAboveAvg ? `rgba(34,197,94,${0.15 + 0.35 * brightness})` : `rgba(239,68,68,${0.1 + 0.25 * brightness})`;
+                        glow = `inset 0 0 ${Math.round(8 + 16 * brightness)}px ${glowColor}`;
+                      }
                     }
                     const isHovered = hoveredMonth === m.key;
                     return (
                       <div key={m.key} style={{position:"relative"}}
                         onMouseEnter={() => setHoveredMonth(m.key)} onMouseLeave={() => setHoveredMonth(null)}>
                         <div style={{background:bg,borderRadius:6,padding:"6px 4px",textAlign:"center",minHeight:40,display:"flex",flexDirection:"column",justifyContent:"center",
-                          border: isHovered ? "1px solid #818cf8" : "1px solid transparent",transition:"border-color 0.15s",cursor:m.count > 0 ? "default" : undefined}}>
+                          boxShadow:glow,
+                          border: isHovered ? "1px solid #818cf8" : m.count > 0 && (m.count / maxCount) > 0.5 ? `1px solid ${m.avgElo >= creativeStreaks.overallAvg ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.2)"}` : "1px solid transparent",
+                          transition:"all 0.15s",cursor:m.count > 0 ? "default" : undefined}}>
                           <div style={{color:"#9a9ab0",fontSize:8}}>{monthNames[m.month]} {String(m.year).slice(2)}</div>
                           <div style={{color:m.count > 0 ? "#e2e8f0" : "#5a5a70",fontSize:13,fontWeight:700}}>{m.count || "-"}</div>
                           {m.avgElo !== null && <div style={{color:"#9a9ab0",fontSize:8}}>{m.avgElo}</div>}

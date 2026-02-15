@@ -10,6 +10,7 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
   const [editName, setEditName] = useState("");
   const [settingsTab, setSettingsTab] = useState("general");
   const [showDelModal, setShowDelModal] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [delSongs, setDelSongs] = useState(false);
   const [delComps, setDelComps] = useState(false);
   const [delPlaylists, setDelPlaylists] = useState(false);
@@ -185,7 +186,7 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
                   edit
                 </button>
                 {onLogout && (
-                  <button onClick={()=>{if(window.confirm("Are you sure you want to sign out?"))onLogout()}}
+                  <button onClick={()=>setShowLogoutConfirm(true)}
                     style={{background:"none",border:"1px solid #2a2a45",borderRadius:8,padding:"7px 14px",color:"#8a8aa0",fontSize:12,cursor:"pointer"}}
                     onMouseEnter={e=>{e.target.style.color="#ef4444";e.target.style.borderColor="#5a2a2a"}}
                     onMouseLeave={e=>{e.target.style.color="#8a8aa0";e.target.style.borderColor="#2a2a45"}}>
@@ -549,6 +550,19 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
               </div>
             );
           })()}
+          </div>
+        </div>
+      )}
+      {showLogoutConfirm && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
+          onClick={()=>setShowLogoutConfirm(false)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#14142a",border:"1px solid #2a2a45",borderRadius:20,padding:"28px 28px 24px",maxWidth:360,width:"100%",animation:"fadeUp 0.3s ease-out",boxShadow:"0 20px 60px rgba(0,0,0,0.5)"}}>
+            <h2 style={{margin:"0 0 8px",color:"#e2e8f0",fontSize:18,fontWeight:600}}>Sign out?</h2>
+            <p style={{color:"#8a8aa0",fontSize:13,margin:"0 0 20px"}}>Are you sure you want to sign out?</p>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <button onClick={()=>setShowLogoutConfirm(false)} style={{background:"none",border:"1px solid #2a2a45",borderRadius:10,padding:"10px 18px",color:"#8a8aa0",fontSize:13,cursor:"pointer"}}>cancel</button>
+              <button onClick={()=>{setShowLogoutConfirm(false);onLogout()}} style={{background:"none",border:"1px solid #ef4444",borderRadius:10,padding:"10px 18px",color:"#ef4444",fontSize:13,cursor:"pointer",fontWeight:600}}>sign out</button>
+            </div>
           </div>
         </div>
       )}
