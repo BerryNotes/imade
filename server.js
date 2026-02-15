@@ -740,7 +740,6 @@ function requireAdmin(req, res, next) {
 
 // Token verification endpoint for remote admin login
 app.post("/api/admin/verify", (req, res) => {
-  res.header("Access-Control-Allow-Origin", ADMIN_ORIGIN);
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith("Bearer ") && authHeader.slice(7) === ADMIN_TOKEN) {
     return res.json({ valid: true });
