@@ -110,6 +110,30 @@
     .search-input:focus { border-color: #818cf8; }
     .search-input::placeholder { color: #4b5563; }
 
+    /* User detail page */
+    .user-detail { display: none; }
+    .user-detail.active { display: block; }
+    .back-btn { background: none; border: 1px solid #2a2a40; color: #6b7280; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s; display: inline-flex; align-items: center; gap: 6px; }
+    .back-btn:hover { border-color: #818cf8; color: #818cf8; }
+    .detail-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+    .detail-user-info { display: flex; align-items: center; gap: 16px; }
+    .detail-avatar { width: 48px; height: 48px; border-radius: 50%; background: #1a1a2e; border: 2px solid #2a2a45; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; color: #818cf8; }
+    .detail-name { font-size: 20px; font-weight: 700; color: #e2e2f0; }
+    .detail-meta { font-size: 12px; color: #6b7280; margin-top: 2px; }
+    .stat-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+    .stat-card { background: #0f0f1a; border: 1px solid #1e1e35; border-radius: 10px; padding: 16px 20px; }
+    .stat-card .label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; margin-bottom: 6px; }
+    .stat-card .value { font-size: 24px; font-weight: 700; color: #e2e2f0; font-family: 'SF Mono', Monaco, monospace; }
+    .stat-card .sub { font-size: 11px; color: #4b5563; margin-top: 4px; }
+    .detail-section { margin-bottom: 24px; }
+    .detail-section h3 { font-size: 13px; font-weight: 700; color: #e2e2f0; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+    .genre-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+    .genre-tag { background: #1a1a2e; border: 1px solid #2a2a45; border-radius: 6px; padding: 4px 12px; font-size: 12px; color: #9ca3af; }
+    .genre-tag .count { color: #6b7280; margin-left: 4px; }
+    .detail-songs-search { margin-bottom: 12px; }
+    .elo-bar { width: 60px; height: 6px; background: #1a1a2e; border-radius: 3px; overflow: hidden; display: inline-block; vertical-align: middle; margin-left: 6px; }
+    .elo-bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+
     /* Activity tab */
     .action-badge { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 3px 8px; border-radius: 4px; }
     .action-badge-login { color: #22c55e; background: rgba(34,197,94,0.12); }
@@ -122,6 +146,14 @@
     .activity-filter:focus { border-color: #818cf8; }
     .btn-load-more { display: block; width: 100%; background: none; border: 1px solid #2a2a40; color: #6b7280; padding: 10px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; margin-top: 12px; transition: all 0.15s; }
     .btn-load-more:hover { border-color: #818cf8; color: #818cf8; }
+
+    /* Environment switcher */
+    .env-switcher { display: inline-flex; align-items: center; gap: 2px; margin-left: 10px; vertical-align: middle; background: #0c0a1a; border: 1px solid #1e1e35; border-radius: 6px; padding: 2px; }
+    .env-btn { border: none; padding: 4px 10px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.04em; transition: all 0.15s; background: transparent; color: #6b7280; }
+    .env-btn:hover { color: #e2e2f0; }
+    .env-btn.active-local { background: #818cf8; color: #0a0a14; }
+    .env-btn.active-prod { background: #22c55e; color: #0a0a14; }
+
   </style>
 </head>
 <body>
@@ -148,7 +180,12 @@
   <div class="dashboard" id="dashboard">
     <div class="header">
       <div>
-        <h1>iMade Admin <span id="version-badge" style="font-size:11px;font-weight:600;color:#818cf8;background:rgba(129,140,248,0.12);padding:2px 8px;border-radius:4px;margin-left:8px;vertical-align:middle;display:none"></span></h1>
+        <h1>iMade Admin <span id="version-badge" style="font-size:11px;font-weight:600;color:#818cf8;background:rgba(129,140,248,0.12);padding:2px 8px;border-radius:4px;margin-left:8px;vertical-align:middle;display:none"></span>
+          <span class="env-switcher" id="env-switcher">
+            <button class="env-btn" id="env-local" data-env="local">Local</button>
+            <button class="env-btn" id="env-prod" data-env="prod">Prod</button>
+          </span>
+        </h1>
         <div class="stats" id="stats"></div>
       </div>
       <div class="right">
@@ -204,6 +241,11 @@
       </div>
     </div>
 
+    <!-- User detail view (replaces tab content) -->
+    <div class="user-detail" id="user-detail">
+      <div class="content" id="detail-content"></div>
+    </div>
+
     <!-- Activity tab -->
     <div class="tab-panel" id="tab-activity">
       <div class="content" id="activity-content"></div>
@@ -226,6 +268,74 @@
     let songCache = {};
     let pendingChanges = {}; // { userId: { plan?, role? } }
     let searchQuery = '';
+    let viewingUser = null; // user id for detail page
+    let detailSongSearch = '';
+
+    // Environment config
+    const ENVIRONMENTS = {
+      local: { url: 'http://localhost:3000', label: 'Local' },
+      prod: { url: 'https://app.imade.one', label: 'Prod' },
+    };
+    let currentEnv = null;
+
+    function detectEnv(url) {
+      for (const [key, env] of Object.entries(ENVIRONMENTS)) {
+        if (url === env.url || url === env.url + '/') return key;
+      }
+      return null;
+    }
+
+    function updateEnvUI() {
+      const localBtn = document.getElementById('env-local');
+      const prodBtn = document.getElementById('env-prod');
+      const env = detectEnv(API);
+      localBtn.className = 'env-btn' + (env === 'local' ? ' active-local' : '');
+      prodBtn.className = 'env-btn' + (env === 'prod' ? ' active-prod' : '');
+      currentEnv = env;
+    }
+
+    async function switchEnv(envKey) {
+      if (currentEnv === envKey) return;
+      const env = ENVIRONMENTS[envKey];
+      const saved = localStorage.getItem('imade_admin_tokens');
+      let tokens = {};
+      try { tokens = JSON.parse(saved) || {}; } catch {}
+      let token = tokens[envKey];
+      // Local uses session auth when served from same origin
+      if (envKey === 'local' && location.origin === env.url) {
+        token = '__session__';
+      }
+      if (!token) {
+        const t = prompt(`Enter admin token for ${env.label} (${env.url}):`);
+        if (!t) return;
+        try {
+          const r = await fetch(env.url + '/api/admin/verify', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + t },
+          });
+          if (!r.ok) { alert('Invalid token'); return; }
+          tokens[envKey] = t;
+          localStorage.setItem('imade_admin_tokens', JSON.stringify(tokens));
+          token = t;
+        } catch (e) { alert('Connection failed: ' + e.message); return; }
+      }
+      API = env.url;
+      TOKEN = token;
+      sessionStorage.setItem('imade_admin', JSON.stringify({ url: API, token: TOKEN }));
+      users = []; songCache = {}; expandedUser = null; editingUser = null;
+      confirmingDelete = null; pendingChanges = {}; viewingUser = null;
+      activityInitialized = false; activityLogs = []; activityOffset = 0; activityFilter = ''; activitySearch = '';
+      document.getElementById('server-url').textContent = API;
+      updateEnvUI();
+      showDashboard();
+      loadUsers();
+      // Reload activity if that tab is active
+      const activeTab = document.querySelector('.tab-btn.active');
+      if (activeTab && activeTab.dataset.tab === 'activity') initActivity();
+    }
+
+    document.getElementById('env-local').addEventListener('click', () => switchEnv('local'));
+    document.getElementById('env-prod').addEventListener('click', () => switchEnv('prod'));
 
     // --- Tab switching ---
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -305,6 +415,15 @@
       document.getElementById('login-screen').style.display = 'none';
       document.getElementById('dashboard').style.display = 'block';
       document.getElementById('server-url').textContent = API;
+      updateEnvUI();
+      // Save token for env switching
+      const env = detectEnv(API);
+      if (env && TOKEN && TOKEN !== '__session__') {
+        let tokens = {};
+        try { tokens = JSON.parse(localStorage.getItem('imade_admin_tokens')) || {}; } catch {}
+        tokens[env] = TOKEN;
+        localStorage.setItem('imade_admin_tokens', JSON.stringify(tokens));
+      }
       // Fetch and display version
       apiFetch('/api/update-check').then(d => {
         if (d && d.current) {
@@ -417,35 +536,6 @@
           </td></tr>`;
         }
 
-        if (isExpanded) {
-          const songs = songCache[u.id];
-          html += `<tr><td colspan="9" style="padding:0;border-top:none">
-            <div class="songs-panel">`;
-          if (!songs) {
-            html += `<div class="loading">Loading songs...</div>`;
-          } else if (songs.length === 0) {
-            html += `<div class="empty">No songs</div>`;
-          } else {
-            html += `<table><thead><tr>
-              <th class="num">#</th><th>Title</th><th>Genre</th><th class="num">Elo</th><th>Date</th>
-            </tr></thead><tbody>`;
-            const show = songs.slice(0, 50);
-            show.forEach((s, i) => {
-              html += `<tr>
-                <td class="num">${i + 1}</td>
-                <td><strong>${esc(s.title)}</strong></td>
-                <td>${esc(s.genre || '\u2014')}</td>
-                <td class="num">${s.elo}</td>
-                <td>${esc(s.date || '\u2014')}</td>
-              </tr>`;
-            });
-            if (songs.length > 50) {
-              html += `<tr><td colspan="5" class="empty">...and ${songs.length - 50} more</td></tr>`;
-            }
-            html += `</tbody></table>`;
-          }
-          html += `</div></td></tr>`;
-        }
       });
 
       tbody.innerHTML = html;
@@ -473,17 +563,7 @@
       const expandRow = t.closest('[data-expand]');
       if (expandRow && !t.closest('.actions') && !t.closest('.edit-row') && !t.closest('.confirm-row') && !t.closest('button')) {
         const id = parseInt(expandRow.dataset.expand);
-        if (expandedUser === id) {
-          expandedUser = null;
-        } else {
-          expandedUser = id;
-          if (!songCache[id]) {
-            render();
-            try { songCache[id] = await apiFetch(`/api/admin/users/${id}/songs`); }
-            catch { songCache[id] = []; }
-          }
-        }
-        render();
+        showUserDetail(id);
         return;
       }
 
@@ -642,6 +722,218 @@
       const s = document.getElementById('user-search');
       if (s && /^https?:\/\//.test(s.value)) { s.value = ''; searchQuery = ''; render(); }
     }, 200);
+
+    // ===================== USER DETAIL VIEW =====================
+
+    async function showUserDetail(id) {
+      viewingUser = id;
+      detailSongSearch = '';
+      // Hide tabs + tab bar, show detail view
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.querySelector('.tab-bar').style.display = 'none';
+      document.getElementById('user-detail').classList.add('active');
+      // Load songs if not cached
+      if (!songCache[id]) {
+        renderUserDetail(); // show loading state
+        try { songCache[id] = await apiFetch(`/api/admin/users/${id}/songs`); }
+        catch { songCache[id] = []; }
+      }
+      renderUserDetail();
+    }
+
+    function hideUserDetail() {
+      viewingUser = null;
+      document.getElementById('user-detail').classList.remove('active');
+      document.querySelector('.tab-bar').style.display = 'flex';
+      // Re-activate the users tab
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelector('[data-tab="users"]').classList.add('active');
+      document.getElementById('tab-users').classList.add('active');
+    }
+
+    function renderUserDetail() {
+      const el = document.getElementById('detail-content');
+      const u = users.find(x => x.id === viewingUser);
+      if (!u) { el.innerHTML = '<div class="error">User not found</div>'; return; }
+
+      const songs = songCache[u.id];
+      const plan = u.plan || 'trial';
+      const role = u.role || 'user';
+
+      // Compute stats from songs
+      let avgElo = 0, maxElo = 0, minElo = 1000, topSong = null, genreCounts = {};
+      if (songs && songs.length > 0) {
+        let eloSum = 0;
+        songs.forEach(s => {
+          eloSum += s.elo;
+          if (s.elo > maxElo) { maxElo = s.elo; topSong = s; }
+          if (s.elo < minElo) minElo = s.elo;
+          const g = s.genre || 'Ungenred';
+          genreCounts[g] = (genreCounts[g] || 0) + 1;
+        });
+        avgElo = Math.round(eloSum / songs.length);
+      }
+
+      let html = `<div style="margin-bottom:20px">
+        <button class="back-btn" id="detail-back">\u2190 Back to Users</button>
+      </div>`;
+
+      // Header
+      html += `<div class="detail-header">
+        <div class="detail-user-info">
+          <div class="detail-avatar">${esc(u.username.charAt(0).toUpperCase())}</div>
+          <div>
+            <div class="detail-name">${esc(u.username)}
+              ${role === 'admin' ? '<span class="badge">admin</span>' : ''}
+              <span class="badge ${plan === 'full' ? 'badge-full' : 'badge-trial'}">${plan}</span>
+            </div>
+            <div class="detail-meta">ID: ${u.id} \u00b7 Joined ${formatDate(u.created_at)}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn-refresh" id="detail-export">Export Data</button>
+          <label class="btn-refresh" id="detail-import-label" style="cursor:pointer">Import Data
+            <input type="file" accept=".json" id="detail-import-input" style="display:none" />
+          </label>
+        </div>
+      </div>`;
+
+      // Stat cards
+      html += `<div class="stat-cards">
+        <div class="stat-card">
+          <div class="label">Songs</div>
+          <div class="value">${u.song_count}</div>
+          ${songs && songs.length > 0 ? `<div class="sub">Avg Elo: ${avgElo}</div>` : ''}
+        </div>
+        <div class="stat-card">
+          <div class="label">Comparisons</div>
+          <div class="value">${u.comparison_count}</div>
+          ${u.song_count > 0 ? `<div class="sub">${(u.comparison_count / u.song_count).toFixed(1)} per song</div>` : ''}
+        </div>
+        <div class="stat-card">
+          <div class="label">Playlists</div>
+          <div class="value">${u.playlist_count}</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Elo Range</div>
+          <div class="value">${songs && songs.length > 0 ? minElo + '\u2013' + maxElo : '\u2014'}</div>
+          ${topSong ? `<div class="sub">Top: ${esc(topSong.title)}</div>` : ''}
+        </div>
+      </div>`;
+
+      // Genres breakdown
+      if (songs && songs.length > 0) {
+        const sortedGenres = Object.entries(genreCounts).sort((a, b) => b[1] - a[1]);
+        html += `<div class="detail-section">
+          <h3>Genres</h3>
+          <div class="genre-tags">
+            ${sortedGenres.map(([g, c]) => `<span class="genre-tag">${esc(g)}<span class="count">${c}</span></span>`).join('')}
+          </div>
+        </div>`;
+      }
+
+      // Songs table
+      html += `<div class="detail-section">
+        <h3>Songs (${songs ? songs.length : '...'})</h3>`;
+
+      if (!songs) {
+        html += '<div class="loading">Loading songs...</div>';
+      } else if (songs.length === 0) {
+        html += '<div class="empty">No songs yet</div>';
+      } else {
+        html += `<div class="detail-songs-search">
+          <input class="search-input" id="detail-song-search" type="search" placeholder="Search songs..." value="${esc(detailSongSearch)}" autocomplete="off" />
+        </div>`;
+
+        const q = detailSongSearch.toLowerCase().trim();
+        let filtered = songs;
+        if (q) {
+          filtered = songs.filter(s =>
+            s.title.toLowerCase().includes(q) ||
+            (s.genre || '').toLowerCase().includes(q) ||
+            (s.date || '').includes(q)
+          );
+        }
+
+        html += '<div class="table-wrap"><table><thead><tr>';
+        html += '<th class="num">#</th><th>Title</th><th>Genre</th><th class="num">Elo</th><th>Date</th><th>Notes</th>';
+        html += '</tr></thead><tbody>';
+
+        filtered.forEach((s, i) => {
+          const eloColor = s.elo >= 600 ? '#22c55e' : s.elo >= 500 ? '#e2e2f0' : s.elo >= 400 ? '#f59e0b' : '#ef4444';
+          const eloPct = Math.min(100, Math.max(0, s.elo / 10));
+          html += `<tr>
+            <td class="num" style="color:#4b5563">${i + 1}</td>
+            <td><strong style="color:#e2e2f0">${esc(s.title)}</strong></td>
+            <td>${s.genre ? esc(s.genre) : '<span style="color:#4b5563">\u2014</span>'}</td>
+            <td class="num" style="color:${eloColor}">${s.elo}
+              <div class="elo-bar"><div class="elo-bar-fill" style="width:${eloPct}%;background:${eloColor}"></div></div>
+            </td>
+            <td>${esc(s.date || '\u2014')}</td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#6b7280;font-size:11px">${s.notes ? esc(s.notes) : ''}</td>
+          </tr>`;
+        });
+
+        if (q && filtered.length === 0) {
+          html += '<tr><td colspan="6" class="empty">No songs match your search</td></tr>';
+        }
+
+        html += '</tbody></table></div>';
+      }
+
+      html += '</div>';
+      el.innerHTML = html;
+
+      // Bind events
+      document.getElementById('detail-back')?.addEventListener('click', hideUserDetail);
+      document.getElementById('detail-song-search')?.addEventListener('input', (e) => {
+        detailSongSearch = e.target.value;
+        renderUserDetail();
+        const input = document.getElementById('detail-song-search');
+        if (input) { input.focus(); input.selectionStart = input.selectionEnd = input.value.length; }
+      });
+      document.getElementById('detail-export')?.addEventListener('click', async () => {
+        const btn = document.getElementById('detail-export');
+        btn.textContent = 'Exporting...'; btn.disabled = true;
+        try {
+          const data = await apiFetch(`/api/admin/users/${u.id}/export`);
+          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'imade-' + u.username.toLowerCase().replace(/[^a-z0-9]/g, '-') + '-' + new Date().toISOString().slice(0, 10) + '.json';
+          a.click();
+          URL.revokeObjectURL(url);
+        } catch (e) { alert('Export failed: ' + e.message); }
+        btn.textContent = 'Export Data'; btn.disabled = false;
+      });
+      document.getElementById('detail-import-input')?.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const label = document.getElementById('detail-import-label');
+        label.textContent = 'Importing...';
+        try {
+          const text = await file.text();
+          const data = JSON.parse(text);
+          if (!confirm(`Import data for ${u.username}? This will replace all their existing songs, comparisons, genres, playlists, and listen times.`)) {
+            label.innerHTML = 'Import Data<input type="file" accept=".json" id="detail-import-input" style="display:none" />';
+            return;
+          }
+          await apiFetch(`/api/admin/users/${u.id}/import`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+          });
+          // Reload user data
+          delete songCache[u.id];
+          users = await apiFetch('/api/admin/users');
+          songCache[u.id] = await apiFetch(`/api/admin/users/${u.id}/songs`);
+          renderUserDetail();
+          alert('Import complete');
+        } catch (e) { alert('Import failed: ' + e.message); }
+        label.innerHTML = 'Import Data<input type="file" accept=".json" id="detail-import-input" style="display:none" />';
+      });
+    }
 
     // ===================== ACTIVITY TAB =====================
 

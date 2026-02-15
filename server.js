@@ -273,7 +273,7 @@ app.post("/api/songs/bulk-meta", auth, (req, res) => {
     newSongs.push(song);
   }
 
-  if (newSongs.length > 0) db.logActivity(userId, "song_bulk_meta", newSongs.length + " songs: " + newSongs.map(s => s.title).join(", "), req.ip);
+  if (newSongs.length > 0) db.logActivity(userId, "song_create", newSongs.length + " songs: " + newSongs.map(s => s.title).join(", "), req.ip);
   res.json(newSongs);
 });
 
@@ -374,6 +374,7 @@ app.patch("/api/songs/batch-genre", auth, (req, res) => {
   const { ids, genre } = req.body;
   if (!ids || !Array.isArray(ids)) return res.status(400).json({ error: "ids array required" });
   db.batchUpdateGenre(ids, genre || "", req.session.userId);
+  db.logActivity(req.session.userId, "song_edit", ids.length + " songs → genre: " + (genre || "none"), req.ip);
   res.json({ updated: ids.length });
 });
 
@@ -392,7 +393,7 @@ app.post("/api/songs/batch-delete", auth, (req, res) => {
     }
     db.deleteSong(id, userId);
   }
-  db.logActivity(userId, "song_batch_delete", ids.length + " songs", req.ip);
+  db.logActivity(userId, "song_delete", ids.length + " songs", req.ip);
   res.json({ deleted: ids.length });
 });
 
