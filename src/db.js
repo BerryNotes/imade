@@ -116,6 +116,10 @@ function migrateSchema(db) {
     db.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'");
     db.exec("UPDATE users SET role = 'admin' WHERE id = 1");
   }
+  const actCols = db.prepare("PRAGMA table_info(activity_log)").all().map(c => c.name);
+  if (!actCols.includes("ua")) {
+    db.exec("ALTER TABLE activity_log ADD COLUMN ua TEXT");
+  }
 }
 
 // --- User helpers ---
@@ -465,10 +469,7 @@ function bulkReplace(userId, data) {
 // --- Activity log helpers ---
 
 function logActivity(userId, action, detail, ip, ua) {
-  const db = getDb();
-  // Ensure ua column exists
-  try { db.prepare("ALTER TABLE activity_log ADD COLUMN ua TEXT").run(); } catch {}
-  db.prepare(
+  getDb().prepare(
     "INSERT INTO activity_log (user_id, action, detail, ip, ua) VALUES (?, ?, ?, ?, ?)"
   ).run(userId, action, detail || null, ip || null, ua || null);
 }
