@@ -297,12 +297,16 @@
     async function switchEnv(envKey) {
       if (currentEnv === envKey) return;
       const env = ENVIRONMENTS[envKey];
+      // Local admin must be accessed directly (HTTPS→HTTP blocked by browsers)
+      if (envKey === 'local' && location.origin !== env.url) {
+        window.location.href = env.url + '/admin/';
+        return;
+      }
       const saved = localStorage.getItem('imade_admin_tokens');
       let tokens = {};
       try { tokens = JSON.parse(saved) || {}; } catch {}
       let token = tokens[envKey];
-      // Local uses session auth when served from same origin
-      if (envKey === 'local' && location.origin === env.url) {
+      if (envKey === 'local') {
         token = '__session__';
       }
       if (!token) {

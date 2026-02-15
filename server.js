@@ -40,9 +40,12 @@ app.use(express.json({ limit: "50mb" }));
 app.use(createSessionMiddleware());
 
 // CORS for remote admin site
-const ADMIN_ORIGIN = process.env.ADMIN_ORIGIN || "https://admin.imade.one";
+const ADMIN_ORIGINS = ["https://admin.imade.one", "http://localhost:3000"];
 app.use("/api/admin", (req, res, next) => {
-  res.header("Access-Control-Allow-Origin", ADMIN_ORIGIN);
+  const origin = req.headers.origin;
+  if (ADMIN_ORIGINS.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+  }
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") return res.sendStatus(204);
