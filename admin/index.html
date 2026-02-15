@@ -143,6 +143,9 @@
     .action-badge-register { color: #818cf8; background: rgba(129,140,248,0.12); }
     .action-badge-song_create, .action-badge-song_bulk_upload { color: #f59e0b; background: rgba(245,158,11,0.12); }
     .action-badge-song_delete { color: #ef4444; background: rgba(239,68,68,0.12); }
+    .action-badge-username_change { color: #818cf8; background: rgba(129,140,248,0.12); }
+    .action-badge-password_reset, .action-badge-password_reset_requested { color: #f59e0b; background: rgba(245,158,11,0.12); }
+    .action-badge-email_verified { color: #22c55e; background: rgba(34,197,94,0.12); }
     .activity-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
     .activity-filter { background: #0c0a1a; color: #e2e2f0; border: 1px solid #2a2a40; padding: 7px 10px; border-radius: 6px; font-size: 12px; outline: none; }
     .activity-filter:focus { border-color: #818cf8; }
@@ -234,7 +237,6 @@
                 <th class="num">Comparisons</th>
                 <th class="num">Playlists</th>
                 <th>Joined</th>
-                <th>Actions</th>
               </tr>
             </thead>
             <tbody id="user-table"></tbody>
@@ -265,9 +267,8 @@
     let TOKEN = '';
     let users = [];
     let expandedUser = null;
-    let editingUser = null;
-    let confirmingDelete = null;
     let songCache = {};
+    let emailCache = {};
     let pendingChanges = {}; // { userId: { plan?, role? } }
     let searchQuery = '';
     let viewingUser = null; // user id for detail page
@@ -328,7 +329,7 @@
       API = env.url;
       TOKEN = token;
       sessionStorage.setItem('imade_admin', JSON.stringify({ url: API, token: TOKEN }));
-      users = []; songCache = {}; expandedUser = null; editingUser = null;
+      users = []; songCache = {}; emailCache = {}; expandedUser = null; editingUser = null;
       confirmingDelete = null; pendingChanges = {}; viewingUser = null;
       activityInitialized = false; activityLogs = []; activityOffset = 0; activityFilter = ''; activitySearch = '';
       document.getElementById('server-url').textContent = API;
@@ -363,14 +364,28 @@
       loadUsers();
     } else {
       // Restore saved session (remote access)
+      let restored = false;
       const saved = sessionStorage.getItem('imade_admin');
       if (saved) {
         try {
           const s = JSON.parse(saved);
           API = s.url; TOKEN = s.token;
-          showDashboard();
-          loadUsers();
+          restored = true;
         } catch {}
+      }
+      // Fall back to localStorage tokens (persists across sessions)
+      if (!restored) {
+        try {
+          const tokens = JSON.parse(localStorage.getItem('imade_admin_tokens')) || {};
+          if (tokens.prod) {
+            API = ENVIRONMENTS.prod.url; TOKEN = tokens.prod;
+            restored = true;
+          }
+        } catch {}
+      }
+      if (restored) {
+        showDashboard();
+        loadUsers();
       }
     }
 
@@ -412,7 +427,7 @@
     document.getElementById('disconnect-btn').addEventListener('click', () => {
       sessionStorage.removeItem('imade_admin');
       API = ''; TOKEN = '';
-      users = []; songCache = {}; expandedUser = null; editingUser = null; confirmingDelete = null;
+      users = []; songCache = {}; emailCache = {}; expandedUser = null; editingUser = null; confirmingDelete = null;
       document.getElementById('login-screen').style.display = 'flex';
       document.getElementById('dashboard').style.display = 'none';
     });
@@ -498,9 +513,6 @@
 
       filtered.forEach((u, idx) => {
         const isExpanded = expandedUser === u.id;
-        const isEditing = editingUser === u.id;
-        const isConfirming = confirmingDelete === u.id;
-
         const pending = pendingChanges[u.id] || {};
         const plan = pending.plan !== undefined ? pending.plan : (u.plan || 'trial');
         const role = pending.role !== undefined ? pending.role : (u.role || 'user');
@@ -516,32 +528,7 @@
           <td class="num">${u.comparison_count}</td>
           <td class="num">${u.playlist_count}</td>
           <td>${formatDate(u.created_at)}</td>
-          <td><div class="actions">
-            <button class="btn btn-edit" data-edit="${u.id}">Edit</button>
-            ${u.id !== 1 ? `<button class="btn btn-delete" data-confirm="${u.id}">Delete</button>` : ''}
-          </div></td>
         </tr>`;
-
-        if (isEditing) {
-          html += `<tr class="edit-row"><td colspan="9">
-            <form autocomplete="off" onsubmit="return false"><div class="edit-form">
-              <div class="field"><label>Username</label><input id="edit-username" value="${esc(u.username)}" autocomplete="off" /></div>
-              <div class="field"><label>Password</label><input id="edit-password" type="password" placeholder="Leave empty to keep" autocomplete="new-password" /></div>
-              <button type="button" class="btn btn-save" data-save="${u.id}">Save</button>
-              <button type="button" class="btn btn-cancel" data-cancel-edit>Cancel</button>
-            </div></form>
-          </td></tr>`;
-        }
-
-        if (isConfirming) {
-          html += `<tr class="confirm-row"><td colspan="9">
-            <div style="display:flex;align-items:center;gap:12px">
-              <span class="confirm-msg">Delete <strong>${esc(u.username)}</strong> and all their data? This cannot be undone.</span>
-              <button class="btn btn-delete" data-do-delete="${u.id}">Confirm Delete</button>
-              <button class="btn btn-cancel" data-cancel-delete>Cancel</button>
-            </div>
-          </td></tr>`;
-        }
 
       });
 
@@ -568,59 +555,11 @@
       const t = e.target;
 
       const expandRow = t.closest('[data-expand]');
-      if (expandRow && !t.closest('.actions') && !t.closest('.edit-row') && !t.closest('.confirm-row') && !t.closest('button')) {
+      if (expandRow && !t.closest('button')) {
         const id = parseInt(expandRow.dataset.expand);
         showUserDetail(id);
         return;
       }
-
-      if (t.dataset.edit) {
-        editingUser = parseInt(t.dataset.edit);
-        confirmingDelete = null;
-        render(); return;
-      }
-
-      if (t.dataset.save) {
-        const id = parseInt(t.dataset.save);
-        const username = document.getElementById('edit-username')?.value.trim();
-        const password = document.getElementById('edit-password')?.value.trim();
-        const body = {};
-        if (username) body.username = username;
-        if (password) body.password = password;
-        if (Object.keys(body).length === 0) { editingUser = null; render(); return; }
-        try {
-          users = await apiFetch(`/api/admin/users/${id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-          });
-          editingUser = null;
-          render();
-        } catch (e) { alert(e.message); }
-        return;
-      }
-
-      if (t.dataset.cancelEdit !== undefined) { editingUser = null; render(); return; }
-
-      if (t.dataset.confirm) {
-        confirmingDelete = parseInt(t.dataset.confirm);
-        editingUser = null;
-        render(); return;
-      }
-
-      if (t.dataset.doDelete) {
-        const id = parseInt(t.dataset.doDelete);
-        try {
-          users = await apiFetch(`/api/admin/users/${id}`, { method: 'DELETE' });
-          confirmingDelete = null;
-          expandedUser = null;
-          delete songCache[id];
-          render();
-        } catch (e) { alert(e.message); }
-        return;
-      }
-
-      if (t.dataset.cancelDelete !== undefined) { confirmingDelete = null; render(); return; }
 
       if (t.dataset.togglePlan) {
         const id = parseInt(t.dataset.togglePlan);
@@ -675,7 +614,7 @@
     document.getElementById('refresh-btn').addEventListener('click', async () => {
       const btn = document.getElementById('refresh-btn');
       btn.classList.add('spinning');
-      songCache = {};
+      songCache = {}; emailCache = {};
       pendingChanges = {};
       await loadUsers();
       btn.classList.remove('spinning');
@@ -739,11 +678,15 @@
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       document.querySelector('.tab-bar').style.display = 'none';
       document.getElementById('user-detail').classList.add('active');
-      // Load songs if not cached
-      if (!songCache[id]) {
+      // Load songs and emails if not cached
+      if (!songCache[id] || !emailCache[id]) {
         renderUserDetail(); // show loading state
-        try { songCache[id] = await apiFetch(`/api/admin/users/${id}/songs`); }
-        catch { songCache[id] = []; }
+        const [songs, emails] = await Promise.all([
+          songCache[id] ? songCache[id] : apiFetch(`/api/admin/users/${id}/songs`).catch(() => []),
+          emailCache[id] ? emailCache[id] : apiFetch(`/api/admin/users/${id}/emails`).catch(() => []),
+        ]);
+        songCache[id] = songs;
+        emailCache[id] = emails;
       }
       renderUserDetail();
     }
@@ -828,6 +771,25 @@
         </div>
       </div>`;
 
+      // Account section
+      html += `<div class="detail-section">
+        <h3>Account</h3>
+        <div style="background:#0f0f1a;border:1px solid #1e1e35;border-radius:10px;padding:20px">
+          <form autocomplete="off" onsubmit="return false">
+          <div style="display:flex;flex-direction:column;gap:14px;max-width:360px">
+            <div class="field"><label>Username</label><input id="detail-edit-username" value="${esc(u.username)}" autocomplete="off" /></div>
+            <div class="field"><label>Email</label><input id="detail-edit-email" value="${esc(u.email || '')}" placeholder="user@example.com" autocomplete="off" /></div>
+            <div class="field"><label>New Password</label><input id="detail-edit-password" type="password" placeholder="Leave empty to keep" autocomplete="new-password" /></div>
+            <div style="display:flex;gap:8px;margin-top:4px">
+              <button class="btn btn-save" id="detail-save-account">Save</button>
+              ${u.id !== 1 ? '<button class="btn btn-delete" id="detail-delete-user">Delete User</button>' : ''}
+            </div>
+            <div id="detail-account-msg" style="font-size:12px;display:none"></div>
+          </div>
+          </form>
+        </div>
+      </div>`;
+
       // Genres breakdown
       if (songs && songs.length > 0) {
         const sortedGenres = Object.entries(genreCounts).sort((a, b) => b[1] - a[1]);
@@ -837,6 +799,29 @@
             ${sortedGenres.map(([g, c]) => `<span class="genre-tag">${esc(g)}<span class="count">${c}</span></span>`).join('')}
           </div>
         </div>`;
+      }
+
+      // Emails sent
+      const emails = emailCache[u.id];
+      if (emails && emails.length > 0) {
+        html += `<div class="detail-section">
+          <h3>Emails Sent (${emails.length})</h3>
+          <div class="table-wrap"><table><thead><tr>
+            <th>Date</th><th>Type</th><th>Status</th>
+          </tr></thead><tbody>`;
+        emails.forEach(em => {
+          const typeLabel = em.type === 'verify' ? 'Verification' : em.type === 'reset' ? 'Password Reset' : esc(em.type);
+          const typeBadge = em.type === 'verify'
+            ? '<span class="action-badge action-badge-register">' + typeLabel + '</span>'
+            : '<span class="action-badge action-badge-login">' + typeLabel + '</span>';
+          const status = em.used ? '<span style="color:#22c55e">Used</span>' : (em.expires_at < Date.now() ? '<span style="color:#6b7280">Expired</span>' : '<span style="color:#f59e0b">Pending</span>');
+          html += `<tr>
+            <td>${formatDateTime(em.created_at)}</td>
+            <td>${typeBadge}</td>
+            <td>${status}</td>
+          </tr>`;
+        });
+        html += '</tbody></table></div></div>';
       }
 
       // Songs table
@@ -889,6 +874,7 @@
       }
 
       html += '</div>';
+
       el.innerHTML = html;
 
       // Bind events
@@ -939,6 +925,47 @@
           alert('Import complete');
         } catch (e) { alert('Import failed: ' + e.message); }
         label.innerHTML = 'Import Data<input type="file" accept=".json" id="detail-import-input" style="display:none" />';
+      });
+      // Account save
+      document.getElementById('detail-save-account')?.addEventListener('click', async () => {
+        const btn = document.getElementById('detail-save-account');
+        const msgEl = document.getElementById('detail-account-msg');
+        const username = document.getElementById('detail-edit-username')?.value.trim();
+        const emailVal = document.getElementById('detail-edit-email')?.value.trim();
+        const password = document.getElementById('detail-edit-password')?.value.trim();
+        const body = {};
+        if (username && username !== u.username) body.username = username;
+        if (emailVal !== (u.email || '')) body.email = emailVal;
+        if (password) body.password = password;
+        if (Object.keys(body).length === 0) {
+          msgEl.style.display = 'block'; msgEl.style.color = '#6b7280'; msgEl.textContent = 'No changes to save.';
+          setTimeout(() => msgEl.style.display = 'none', 2000);
+          return;
+        }
+        btn.disabled = true; btn.textContent = 'Saving...';
+        try {
+          users = await apiFetch(`/api/admin/users/${u.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          delete emailCache[u.id];
+          renderUserDetail();
+        } catch (e) {
+          msgEl.style.display = 'block'; msgEl.style.color = '#ef4444'; msgEl.textContent = e.message;
+          btn.disabled = false; btn.textContent = 'Save';
+        }
+      });
+      // Account delete
+      document.getElementById('detail-delete-user')?.addEventListener('click', async () => {
+        if (!confirm(`Delete ${u.username} and all their data? This cannot be undone.`)) return;
+        try {
+          users = await apiFetch(`/api/admin/users/${u.id}`, { method: 'DELETE' });
+          delete songCache[u.id];
+          delete emailCache[u.id];
+          hideUserDetail();
+          render();
+        } catch (e) { alert(e.message); }
       });
     }
 
@@ -991,7 +1018,9 @@
       const labels = {
         login: 'Login', logout: 'Logout', register: 'Register',
         song_create: 'Upload', song_bulk_upload: 'Upload',
-        song_edit: 'Edit Song', song_delete: 'Delete Song'
+        song_edit: 'Edit Song', song_delete: 'Delete Song',
+        username_change: 'Username', password_reset: 'Password Reset',
+        password_reset_requested: 'Reset Requested', email_verified: 'Email Verified'
       };
       const label = labels[action] || action;
       return `<span class="action-badge action-badge-${esc(action)}">${esc(label)}</span>`;

@@ -51,6 +51,7 @@ const api = {
   resendVerification: (email) => api.post("/api/resend-verification", { email }),
   forgotPassword: (email) => api.post("/api/forgot-password", { email }),
   resetPassword: (token, password) => api.post("/api/reset-password", { token, password }),
+  requestPasswordChange: () => api.post("/api/request-password-change"),
 
   // Admin helpers
   adminGetUsers: () => api.get("/api/admin/users"),

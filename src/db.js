@@ -537,7 +537,13 @@ function markTokenUsed(token) {
 }
 
 function cleanExpiredTokens() {
-  getDb().prepare("DELETE FROM email_tokens WHERE expires_at < ? OR used = 1").run(Date.now());
+  getDb().prepare("DELETE FROM email_tokens WHERE expires_at < ? AND used = 0").run(Date.now());
+}
+
+function getEmailHistory(userId) {
+  return getDb().prepare(
+    "SELECT id, type, used, created_at, expires_at FROM email_tokens WHERE user_id = ? ORDER BY created_at DESC"
+  ).all(userId);
 }
 
 module.exports = {
@@ -545,7 +551,7 @@ module.exports = {
   createUser, getUserByUsername, getUserById, updateUserPlan, updateUserRole,
   getAllUsersWithStats, updateUserUsername, updateUserPassword, deleteUser,
   updateUserEmail, setEmailVerified, getUserByEmail,
-  createEmailToken, getEmailToken, markTokenUsed, cleanExpiredTokens,
+  createEmailToken, getEmailToken, markTokenUsed, cleanExpiredTokens, getEmailHistory,
   getSongs, getSongById, insertSong, updateSong, deleteSong, batchUpdateGenre, rowToSong,
   getComparisons, insertComparison, deleteLastComparison, deleteAllComparisons,
   getGenres, addGenre, deleteGenre, renameGenre, setGenres,

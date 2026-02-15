@@ -39,6 +39,16 @@ db.getDb(); // triggers schema creation
 const { createSessionMiddleware, requireAuth, electronAutoLogin } = require("./src/middleware/auth");
 
 app.use(express.json({ limit: "50mb" }));
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  if (req.secure || req.headers["x-forwarded-proto"] === "https") {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  next();
+});
 app.use(createSessionMiddleware());
 
 // CORS for remote admin site
@@ -209,43 +219,20 @@ app.get("/api/plan", auth, (req, res) => {
   }
 });
 
-app.put("/api/profile", auth, async (req, res) => {
+app.put("/api/profile", auth, (req, res) => {
   try {
     const userId = req.session.userId;
-    const { username, password, email: newEmail } = req.body;
-    let emailChanged = false;
+    const { username } = req.body;
     if (username) {
       if (username.trim().length < 2) return res.status(400).json({ error: "Username must be at least 2 characters" });
       const existing = db.getUserByUsername(username.trim());
       if (existing && existing.id !== userId) return res.status(409).json({ error: "Username already taken" });
+      const oldUser = db.getUserById(userId);
       db.updateUserUsername(userId, username.trim());
-    }
-    if (password) {
-      if (password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
-      const hash = await bcrypt.hash(password, 10);
-      db.updateUserPassword(userId, hash);
-    }
-    if (newEmail !== undefined) {
-      const currentUser = db.getUserById(userId);
-      const trimmedEmail = newEmail.trim().toLowerCase();
-      if (trimmedEmail && trimmedEmail !== (currentUser.email || "").toLowerCase()) {
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) return res.status(400).json({ error: "Invalid email address" });
-        const existingEmail = db.getUserByEmail(trimmedEmail);
-        if (existingEmail && existingEmail.id !== userId) return res.status(409).json({ error: "Email already in use" });
-        db.updateUserEmail(userId, trimmedEmail);
-        emailChanged = true;
-        // Send verification email for the new address
-        const token = crypto.randomBytes(32).toString("hex");
-        db.createEmailToken(userId, token, "verify", Date.now() + 24 * 60 * 60 * 1000);
-        try {
-          await email.sendVerificationEmail(trimmedEmail, token);
-        } catch (e) {
-          console.error("Failed to send verification email:", e);
-        }
-      }
+      db.logActivity(userId, "username_change", oldUser.username + " → " + username.trim(), req.ip, req.headers["user-agent"]);
     }
     const user = db.getUserById(userId);
-    res.json({ user: { id: user.id, username: user.username, email: user.email || null, emailVerified: !!user.email_verified }, emailChanged });
+    res.json({ user: { id: user.id, username: user.username, email: user.email || null, emailVerified: !!user.email_verified } });
   } catch (e) { console.error("Profile update error:", e); res.status(500).json({ error: e.message }); }
 });
 
@@ -333,6 +320,20 @@ app.post("/api/resend-verification", async (req, res) => {
   }
 
   res.json({ message: "Verification email sent." });
+});
+
+app.post("/api/request-password-change", auth, async (req, res) => {
+  const user = db.getUserById(req.session.userId);
+  if (!user || !user.email) return res.status(400).json({ error: "No email address on file" });
+  const token = crypto.randomBytes(32).toString("hex");
+  db.createEmailToken(user.id, token, "reset", Date.now() + 60 * 60 * 1000);
+  try {
+    await email.sendPasswordResetEmail(user.email, token);
+  } catch (e) {
+    console.error("Failed to send password change email:", e);
+    return res.status(500).json({ error: "Failed to send email" });
+  }
+  res.json({ message: "Password reset link sent to your email." });
 });
 
 // ---- PER-USER FILE UPLOADS ----
@@ -913,11 +914,24 @@ app.post("/api/admin/users", requireAdmin, async (req, res) => {
 app.put("/api/admin/users/:id", requireAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const { username, password, plan, role } = req.body;
+    const { username, password, plan, role, email: newEmail } = req.body;
     if (username) {
       const existing = db.getUserByUsername(username.trim());
       if (existing && existing.id !== id) return res.status(409).json({ error: "Username taken" });
       db.updateUserUsername(id, username.trim());
+    }
+    if (newEmail !== undefined) {
+      const trimmed = newEmail.trim().toLowerCase();
+      if (trimmed) {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return res.status(400).json({ error: "Invalid email address" });
+        const existing = db.getUserByEmail(trimmed);
+        if (existing && existing.id !== id) return res.status(409).json({ error: "Email already in use" });
+        db.updateUserEmail(id, trimmed);
+        db.setEmailVerified(id, 1);
+      } else {
+        db.updateUserEmail(id, null);
+        db.setEmailVerified(id, 0);
+      }
     }
     if (password) {
       const hash = await bcrypt.hash(password, 10);
@@ -954,6 +968,11 @@ app.get("/api/admin/users/:id/songs", requireAdmin, (req, res) => {
     .map(s => ({ ...s, elo: Math.round(s.baseElo > 0 ? s.baseElo : (elo[s.id] || 500)) }))
     .sort((a, b) => b.elo - a.elo);
   res.json(ranked);
+});
+
+app.get("/api/admin/users/:id/emails", requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  res.json(db.getEmailHistory(id));
 });
 
 app.get("/api/admin/users/:id/export", requireAdmin, (req, res) => {
