@@ -7,12 +7,15 @@ import VirtualList from '../components/VirtualList';
 import SongEditForm from '../components/SongEditForm';
 import ScrollToTop from '../components/ScrollToTop';
 
-function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, selectMode, setSelectMode, selectedIds, setSelectedIds, batchGenre, setBatchGenre, stickyTop, listenTimes, setPlayerQueue, setPlayerQueueIdx, switchTab, playlists, showToast, rowDensity, audioAvailable, onDeleteSong }) {
+function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, selectMode, setSelectMode, selectedIds, setSelectedIds, stickyTop, listenTimes, setPlayerQueue, setPlayerQueueIdx, switchTab, playlists, showToast, rowDensity, audioAvailable, onDeleteSong }) {
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("date-desc");
   const [editingSong, setEditingSong] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [batchSaving, setBatchSaving] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [showBulkGenre, setShowBulkGenre] = useState(false);
+  const [showBulkPlaylist, setShowBulkPlaylist] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [notesSong, setNotesSong] = useState(null);
   const [notesText, setNotesText] = useState("");
   const [notesSaving, setNotesSaving] = useState(false);
@@ -62,23 +65,64 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
     });
   }, [setSelectedIds]);
 
-  const applyBatchGenre = async () => {
-    if (selectedIds.size === 0) return;
-    setBatchSaving(true);
-    try {
-      await api.patch("/api/songs/batch-genre", { ids: [...selectedIds], genre: batchGenre });
-      setSelectedIds(new Set());
-      setSelectMode(false);
-      setBatchGenre("");
-      await onRefresh();
-    } catch (e) { showToast("Failed to update genres"); }
-    setBatchSaving(false);
-  };
-
   const exitSelectMode = () => {
     setSelectMode(false);
     setSelectedIds(new Set());
-    setBatchGenre("");
+    setShowBulkGenre(false);
+    setShowBulkPlaylist(false);
+    setConfirmDelete(false);
+  };
+
+  const bulkSetGenre = async (genre) => {
+    if (selectedIds.size === 0) return;
+    setBulkBusy(true);
+    try {
+      await api.patch("/api/songs/batch-genre", { ids: [...selectedIds], genre });
+      await onRefresh();
+      exitSelectMode();
+      showToast("Genre updated for " + selectedIds.size + " songs");
+    } catch (e) { showToast("Failed to update genres"); }
+    setBulkBusy(false);
+  };
+
+  const bulkAddToPlaylist = async (plId) => {
+    if (selectedIds.size === 0) return;
+    const pl = playlists.find(p => p.id === plId);
+    if (!pl) return;
+    setBulkBusy(true);
+    try {
+      const ids = [...(pl.songIds || [])];
+      let added = 0;
+      for (const sid of selectedIds) {
+        if (!ids.includes(sid)) { ids.push(sid); added++; }
+      }
+      await api.put("/api/playlists/" + plId, { ...pl, songIds: ids });
+      await onRefresh();
+      exitSelectMode();
+      showToast("Added " + added + " to " + pl.name);
+    } catch (e) { showToast("Failed to add to playlist"); }
+    setBulkBusy(false);
+  };
+
+  const bulkAddToQueue = () => {
+    if (selectedIds.size === 0) return;
+    const selected = songs.filter(s => selectedIds.has(s.id) && s.audioFile);
+    if (selected.length === 0) { showToast("No playable songs selected"); return; }
+    setPlayerQueue(prev => [...(prev || []), ...selected]);
+    showToast("Added " + selected.length + " to queue");
+    exitSelectMode();
+  };
+
+  const bulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkBusy(true);
+    try {
+      await api.post("/api/songs/batch-delete", { ids: [...selectedIds] });
+      await onRefresh();
+      showToast("Deleted " + selectedIds.size + " songs");
+      exitSelectMode();
+    } catch (e) { showToast("Failed to delete songs"); }
+    setBulkBusy(false);
   };
 
   const usedGenres = useMemo(() => {
@@ -128,8 +172,70 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
   const bulkTagBtn = (
     <button onClick={selectMode ? exitSelectMode : ()=>setSelectMode(true)}
       style={{background:selectMode?"#4338ca20":"#4338ca10",border:"1px solid "+(selectMode?"#4338ca":"#4338ca50"),borderRadius:10,padding:"9px 10px",color:"#818cf8",fontSize:11,cursor:"pointer",width:isMobile?"auto":"100%",textAlign:"left",fontWeight:500,whiteSpace:"nowrap"}}>
-      {selectMode ? "✕ cancel" : "☐ bulk tag"}
+      {selectMode ? "✕ cancel" : "☐ select"}
     </button>
+  );
+  const bulkActions = selectMode && (
+    <div style={{display:"flex",flexDirection:"column",gap:6,background:"#12121f",border:"1px solid #1e1e35",borderRadius:8,padding:"8px 10px",animation:"fadeUp 0.2s ease-out",position:"relative"}}>
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        <button onClick={()=>setSelectedIds(new Set(filtered.map(s=>s.id)))} style={{background:"none",border:"1px solid #2a2a45",borderRadius:6,padding:"4px 8px",color:"#6b7280",fontSize:9,cursor:"pointer"}}
+          onMouseEnter={e=>e.target.style.color="#818cf8"} onMouseLeave={e=>e.target.style.color="#6b7280"}>all</button>
+        <button onClick={()=>setSelectedIds(new Set())} style={{background:"none",border:"1px solid #2a2a45",borderRadius:6,padding:"4px 8px",color:"#6b7280",fontSize:9,cursor:"pointer"}}
+          onMouseEnter={e=>e.target.style.color="#818cf8"} onMouseLeave={e=>e.target.style.color="#6b7280"}>none</button>
+        <span style={{color:"#6b6b80",fontSize:10}}>{selectedIds.size} sel</span>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:4}}>
+        {/* Set Genre */}
+        <div style={{position:"relative"}}>
+          <button onClick={()=>{setShowBulkGenre(!showBulkGenre);setShowBulkPlaylist(false);setConfirmDelete(false)}} disabled={selectedIds.size===0||bulkBusy}
+            style={{background:"none",border:"1px solid #2a2a45",borderRadius:6,padding:"5px 8px",color:selectedIds.size>0?"#818cf8":"#555",fontSize:10,cursor:selectedIds.size>0?"pointer":"default",width:"100%",textAlign:"left"}}
+            onMouseEnter={e=>{if(selectedIds.size>0)e.target.style.background="#1e1e35"}} onMouseLeave={e=>e.target.style.background="none"}>
+            Genre ▾
+          </button>
+          {showBulkGenre && (
+            <div style={{position:"absolute",top:"100%",left:0,marginTop:4,background:"#12121f",border:"1px solid #2a2a45",borderRadius:8,padding:4,zIndex:20,minWidth:120,maxHeight:200,overflowY:"auto",boxShadow:"0 8px 24px rgba(0,0,0,0.5)"}}>
+              <div onClick={()=>bulkSetGenre("")} style={{padding:"6px 10px",fontSize:10,color:"#8a8aa0",cursor:"pointer",borderRadius:4}}
+                onMouseEnter={e=>e.target.style.background="#1e1e35"} onMouseLeave={e=>e.target.style.background="none"}>No genre</div>
+              {genres.map(g=>(
+                <div key={g} onClick={()=>bulkSetGenre(g)} style={{padding:"6px 10px",fontSize:10,color:"#e2e8f0",cursor:"pointer",borderRadius:4,whiteSpace:"nowrap"}}
+                  onMouseEnter={e=>e.target.style.background="#1e1e35"} onMouseLeave={e=>e.target.style.background="none"}>{g}</div>
+              ))}
+            </div>
+          )}
+        </div>
+        {/* Add to Playlist */}
+        <div style={{position:"relative"}}>
+          <button onClick={()=>{setShowBulkPlaylist(!showBulkPlaylist);setShowBulkGenre(false);setConfirmDelete(false)}} disabled={selectedIds.size===0||bulkBusy||playlists.length===0}
+            style={{background:"none",border:"1px solid #2a2a45",borderRadius:6,padding:"5px 8px",color:selectedIds.size>0&&playlists.length>0?"#818cf8":"#555",fontSize:10,cursor:selectedIds.size>0&&playlists.length>0?"pointer":"default",width:"100%",textAlign:"left"}}
+            onMouseEnter={e=>{if(selectedIds.size>0&&playlists.length>0)e.target.style.background="#1e1e35"}} onMouseLeave={e=>e.target.style.background="none"}>
+            Playlist ▾
+          </button>
+          {showBulkPlaylist && (
+            <div style={{position:"absolute",top:"100%",left:0,marginTop:4,background:"#12121f",border:"1px solid #2a2a45",borderRadius:8,padding:4,zIndex:20,minWidth:120,maxHeight:200,overflowY:"auto",boxShadow:"0 8px 24px rgba(0,0,0,0.5)"}}>
+              {playlists.map(p=>(
+                <div key={p.id} onClick={()=>bulkAddToPlaylist(p.id)} style={{padding:"6px 10px",fontSize:10,color:"#e2e8f0",cursor:"pointer",borderRadius:4,whiteSpace:"nowrap"}}
+                  onMouseEnter={e=>e.target.style.background="#1e1e35"} onMouseLeave={e=>e.target.style.background="none"}>{p.name}</div>
+              ))}
+            </div>
+          )}
+        </div>
+        {/* Add to Queue */}
+        <button onClick={bulkAddToQueue} disabled={selectedIds.size===0||bulkBusy}
+          style={{background:"none",border:"1px solid #2a2a45",borderRadius:6,padding:"5px 8px",color:selectedIds.size>0?"#818cf8":"#555",fontSize:10,cursor:selectedIds.size>0?"pointer":"default",width:"100%",textAlign:"left"}}
+          onMouseEnter={e=>{if(selectedIds.size>0)e.target.style.background="#1e1e35"}} onMouseLeave={e=>e.target.style.background="none"}>
+          Queue
+        </button>
+        {/* Delete */}
+        <button onClick={()=>{
+          if(confirmDelete){bulkDelete();}
+          else{setConfirmDelete(true);setShowBulkGenre(false);setShowBulkPlaylist(false);}
+        }} disabled={selectedIds.size===0||bulkBusy}
+          style={{background:confirmDelete?"#7f1d1d":"none",border:"1px solid "+(confirmDelete?"#ef4444":"#2a2a45"),borderRadius:6,padding:"5px 8px",color:confirmDelete?"#fca5a5":(selectedIds.size>0?"#f87171":"#555"),fontSize:10,cursor:selectedIds.size>0?"pointer":"default",fontWeight:confirmDelete?600:400,transition:"all 0.15s",width:"100%",textAlign:"left"}}
+          onMouseEnter={e=>{if(selectedIds.size>0&&!confirmDelete)e.target.style.background="#1e1e35"}} onMouseLeave={e=>{if(!confirmDelete)e.target.style.background="none"}}>
+          {bulkBusy ? "..." : confirmDelete ? "Delete "+selectedIds.size+"?" : "Delete"}
+        </button>
+      </div>
+    </div>
   );
 
   return (
@@ -145,15 +251,17 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
             {genreSelect}
             {sortSelect}
           </div>
+          {bulkActions}
         </div>
       ) : (
-        <div style={{position:"sticky",top:(stickyTop||0)+40,width:170,flexShrink:0,display:"flex",flexDirection:"column",gap:10,paddingTop:8,zIndex:10}}>
+        <div style={{position:"sticky",top:(stickyTop||0),width:170,flexShrink:0,display:"flex",flexDirection:"column",gap:10,paddingTop:8,zIndex:10}}>
           {searchInput}
           <div style={{color:"#8a8aa0",fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em",marginTop:4}}>Genre</div>
           {genreSelect}
           <div style={{color:"#8a8aa0",fontSize:10,textTransform:"uppercase",letterSpacing:"0.06em",marginTop:4}}>Sorting</div>
           {sortSelect}
           <div style={{marginTop:10}}>{bulkTagBtn}</div>
+          {bulkActions}
         </div>
       )}
 
@@ -161,26 +269,7 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
       <div style={{flex:1,minWidth:0}}>
         {/* Action bar above songs */}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,gap:8,flexWrap:"wrap"}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
-            {selectMode && (
-              <div style={{display:"flex",alignItems:"center",gap:6,background:"#12121f",border:"1px solid #1e1e35",borderRadius:8,padding:"6px 10px",animation:"fadeUp 0.2s ease-out",flexWrap:"wrap"}}>
-                <button onClick={()=>setSelectedIds(new Set(filtered.map(s=>s.id)))} style={{background:"none",border:"1px solid #2a2a45",borderRadius:6,padding:"4px 8px",color:"#6b7280",fontSize:9,cursor:"pointer"}}
-                  onMouseEnter={e=>e.target.style.color="#818cf8"} onMouseLeave={e=>e.target.style.color="#6b7280"}>all</button>
-                <button onClick={()=>setSelectedIds(new Set())} style={{background:"none",border:"1px solid #2a2a45",borderRadius:6,padding:"4px 8px",color:"#6b7280",fontSize:9,cursor:"pointer"}}
-                  onMouseEnter={e=>e.target.style.color="#818cf8"} onMouseLeave={e=>e.target.style.color="#6b7280"}>none</button>
-                <span style={{color:"#6b6b80",fontSize:10}}>{selectedIds.size} selected</span>
-                <select value={batchGenre} onChange={e=>setBatchGenre(e.target.value)}
-                  style={{background:"#0d0d1a",border:"1px solid #2a2a45",borderRadius:6,padding:"5px 8px",color:"#e2e8f0",fontSize:10,cursor:"pointer",appearance:"none"}}>
-                  <option value="">no genre</option>
-                  {genres.map(g=><option key={g} value={g}>{g}</option>)}
-                </select>
-                <button onClick={applyBatchGenre} disabled={selectedIds.size===0 || batchSaving}
-                  style={{background:selectedIds.size>0?"linear-gradient(135deg,#4338ca,#6366f1)":"#2a2a40",border:"none",borderRadius:6,padding:"5px 12px",color:selectedIds.size>0?"#fff":"#555",fontSize:10,cursor:selectedIds.size>0?"pointer":"default",fontWeight:600}}>
-                  {batchSaving ? "..." : "apply"}
-                </button>
-              </div>
-            )}
-          </div>
+          <div style={{flex:1,minWidth:0}} />
           <div style={{display:"flex",gap:6,flexShrink:0}}>
             <button onClick={() => {
               const playable = filtered.filter(s => s.audioFile);

@@ -377,6 +377,25 @@ app.patch("/api/songs/batch-genre", auth, (req, res) => {
   res.json({ updated: ids.length });
 });
 
+// Batch delete
+app.post("/api/songs/batch-delete", auth, (req, res) => {
+  const { ids } = req.body;
+  if (!ids || !Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: "ids array required" });
+  const userId = req.session.userId;
+  for (const id of ids) {
+    const song = db.getSongById(id, userId);
+    if (!song) continue;
+    if (song.audioFile && !song.audioFile.startsWith("idb:")) {
+      const filename = path.basename(song.audioFile);
+      const p = path.join(UPLOADS_DIR, String(userId), filename);
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+    }
+    db.deleteSong(id, userId);
+  }
+  db.logActivity(userId, "song_batch_delete", ids.length + " songs", req.ip);
+  res.json({ deleted: ids.length });
+});
+
 app.delete("/api/songs/:id", auth, (req, res) => {
   const userId = req.session.userId;
   const song = db.getSongById(req.params.id, userId);

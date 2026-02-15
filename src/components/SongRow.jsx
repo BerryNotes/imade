@@ -20,10 +20,10 @@ function SongRow({ song, onDelete, onEdit, onNotes, onChangeGenre, rank, showElo
   const manualPlaylists = (playlists || []).filter(pl => !pl.smart);
 
   return (
-    <div style={{background:"#14142a",border:"1px solid #1e1e35",borderRadius:compact?6:8,padding:compact?"4px 10px":narrow?"8px 10px":"10px 14px",display:"flex",flexDirection:"column",gap:compact?2:6,minWidth:0}}>
+    <div onClick={selectable ? ()=>onToggleSelect(song.id) : undefined} style={{background:"#14142a",border:"1px solid "+(selectable&&selected?"#4338ca":"#1e1e35"),borderRadius:compact?6:8,padding:compact?"4px 10px":narrow?"8px 10px":"10px 14px",display:"flex",flexDirection:"column",gap:compact?2:6,minWidth:0,cursor:selectable?"pointer":undefined,transition:"border-color 0.15s"}}>
       <div style={{display:"flex",alignItems:"center",gap:compact?6:narrow?6:8,minWidth:0}}>
         {selectable && (
-          <input type="checkbox" checked={!!selected} onChange={()=>onToggleSelect(song.id)}
+          <input type="checkbox" checked={!!selected} onChange={()=>onToggleSelect(song.id)} onClick={e=>e.stopPropagation()}
             style={{accentColor:"#818cf8",cursor:"pointer",flexShrink:0,width:compact?14:16,height:compact?14:16}} />
         )}
         {rank != null && <span style={{fontSize:compact?11:13,color:rank<=3?"#f59e0b":"#6b6b80",fontWeight:700,minWidth:compact?22:28,textAlign:"right"}}>{rank}</span>}

@@ -110,7 +110,6 @@ function App() {
   const [libFilterGenre, setLibFilterGenre] = useState("All");
   const [libSelectMode, setLibSelectMode] = useState(false);
   const [libSelectedIds, setLibSelectedIds] = useState(new Set());
-  const [libBatchGenre, setLibBatchGenre] = useState("");
   const [showSettings, setShowSettings] = useState(false);
 
   const [focusedSessionSongs, setFocusedSessionSongs] = useState(null);
@@ -583,7 +582,7 @@ function App() {
       )}
 
       {/* Content */}
-      <div style={{maxWidth:1200,margin:"0 auto",padding: tab === "visualizer" ? "0" : window.innerWidth < 640 ? "0 8px 40px" : "20px 24px 40px",overflowX:"hidden"}}>
+      <div style={{maxWidth:1200,margin:"0 auto",padding: tab === "visualizer" ? "0" : window.innerWidth < 640 ? "0 8px 40px" : "20px 24px 40px",overflowX:"clip"}}>
         {/* BattleTab uses display:none/block to preserve session state */}
         <div style={{display: tab === "battle" ? "block" : "none"}}>
           {loaded && <BattleTab songs={songs} comparisons={comparisons} onRefresh={refresh} showToast={showToast} savedPair={battlePair} setSavedPair={setBattlePair}
@@ -602,7 +601,6 @@ function App() {
               filterGenre={libFilterGenre} setFilterGenre={setLibFilterGenre}
               selectMode={libSelectMode} setSelectMode={setLibSelectMode}
               selectedIds={libSelectedIds} setSelectedIds={setLibSelectedIds}
-              batchGenre={libBatchGenre} setBatchGenre={setLibBatchGenre}
               stickyTop={headerHeight} listenTimes={listenTimes}
               setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx} switchTab={switchTab}
               playlists={playlists} showToast={showToast} rowDensity={rowDensity}

@@ -222,30 +222,6 @@ function VisualizerTab({ songs, onFullscreen }) {
       }
       prevDimsRef.current = { w, h };
 
-      // Laser mode uses trail persistence instead of full clear
-      if (mode === 'laser') {
-        // Ensure offscreen trail canvas exists and matches size
-        let lc = laserCanvasRef.current;
-        const dpr = window.devicePixelRatio || 1;
-        const cw = canvas.width;
-        const ch = canvas.height;
-        if (!lc || lc.width !== cw || lc.height !== ch) {
-          lc = document.createElement('canvas');
-          lc.width = cw; lc.height = ch;
-          laserCanvasRef.current = lc;
-        }
-        const lctx = lc.getContext('2d');
-        lctx.clearRect(0, 0, cw, ch);
-        ctx.clearRect(0, 0, w, h);
-        ctx.fillStyle = '#000';
-        ctx.fillRect(0, 0, w, h);
-      } else {
-        ctx.clearRect(0, 0, w, h);
-        // Simple dark background — no per-frame gradient creation
-        ctx.fillStyle = '#0f0d1a';
-        ctx.fillRect(0, 0, w, h);
-      }
-
       // Ensure analyser is connected — may not exist yet if tab opened mid-song
       if (!analyserRef.current) {
         try {
@@ -254,7 +230,12 @@ function VisualizerTab({ songs, onFullscreen }) {
         } catch (e) { /* retry next frame */ }
       }
       const analyser = analyserRef.current;
-      if (!analyser) return;
+      if (!analyser) {
+        ctx.clearRect(0, 0, w, h);
+        ctx.fillStyle = '#0f0d1a';
+        ctx.fillRect(0, 0, w, h);
+        return;
+      }
 
       // Use high-res FFT only for spectrograph; keep small for other modes
       const desiredFft = mode === 'spectrograph' ? 8192 : 512;
@@ -279,6 +260,29 @@ function VisualizerTab({ songs, onFullscreen }) {
         // Freeze frame — reuse last captured data so FX toggles still redraw
         freqData = lastFreqDataRef.current || new Uint8Array(bufLen);
         timeData = lastTimeDataRef.current || new Uint8Array(analyser.fftSize);
+      }
+
+      // Laser mode uses trail persistence instead of full clear
+      if (mode === 'laser') {
+        // Ensure offscreen trail canvas exists and matches size
+        let lc = laserCanvasRef.current;
+        const dpr = window.devicePixelRatio || 1;
+        const cw = canvas.width;
+        const ch = canvas.height;
+        if (!lc || lc.width !== cw || lc.height !== ch) {
+          lc = document.createElement('canvas');
+          lc.width = cw; lc.height = ch;
+          laserCanvasRef.current = lc;
+        }
+        const lctx = lc.getContext('2d');
+        lctx.clearRect(0, 0, cw, ch);
+        ctx.clearRect(0, 0, w, h);
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, w, h);
+      } else {
+        ctx.clearRect(0, 0, w, h);
+        ctx.fillStyle = '#0f0d1a';
+        ctx.fillRect(0, 0, w, h);
       }
 
       sphereTimeRef.current += dt;
