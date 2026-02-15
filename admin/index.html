@@ -969,7 +969,15 @@
 
     function formatDateTime(d) {
       if (!d) return '\u2014';
-      return new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      return new Date(d + 'Z').toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' });
+    }
+
+    function deviceBadge(ua) {
+      if (!ua) return '<span style="color:#4b5563">\u2014</span>';
+      const isMobile = /Mobile|Android|iPhone|iPad/i.test(ua);
+      return isMobile
+        ? '<span style="color:#f59e0b;font-size:10px;font-weight:600">Mobile</span>'
+        : '<span style="color:#6b7280;font-size:10px">Desktop</span>';
     }
 
     function actionBadge(action) {
@@ -1007,7 +1015,7 @@
         <span style="font-size:11px;color:#4b5563;margin-left:auto">${activityTotal} total events</span>
       </div>`;
 
-      html += '<div class="table-wrap"><table><thead><tr><th>Timestamp</th><th>User</th><th>Action</th><th>Detail</th><th>IP</th></tr></thead><tbody>';
+      html += '<div class="table-wrap"><table><thead><tr><th>Timestamp</th><th>User</th><th>Action</th><th>Detail</th><th>Device</th><th>IP</th></tr></thead><tbody>';
 
       // Group consecutive uploads or deletes from the same user within 60s
       const grouped = [];
@@ -1023,7 +1031,7 @@
       }
 
       if (grouped.length === 0) {
-        html += '<tr><td colspan="5" class="empty">No activity logged yet</td></tr>';
+        html += '<tr><td colspan="6" class="empty">No activity logged yet</td></tr>';
       } else {
         for (const group of grouped) {
           if (group.isGroupable && group.entries.length > 1) {
@@ -1046,10 +1054,11 @@
               <td>${group.username ? '<strong>' + esc(group.username) + '</strong>' : '<span style="color:#4b5563">deleted</span>'}</td>
               <td>${actionBadge(group.action)}</td>
               <td>${verb} ${count} song${count !== 1 ? 's' : ''}</td>
+              <td>${deviceBadge(group.ua)}</td>
               <td style="font-family:monospace;font-size:11px;color:#6b7280">${group.ip ? esc(group.ip) : '\u2014'}</td>
             </tr>`;
             if (isExpanded && allTitles.length > 0) {
-              html += `<tr><td colspan="5" style="padding:8px 14px 12px;background:#0c0a1a;border-top:none">
+              html += `<tr><td colspan="6" style="padding:8px 14px 12px;background:#0c0a1a;border-top:none">
                 <div style="font-size:12px;color:#6b7280">${allTitles.map(t => '<div style="padding:2px 0;color:#9ca3af">' + esc(t) + '</div>').join('')}</div>
               </td></tr>`;
             }
@@ -1060,6 +1069,7 @@
               <td>${log.username ? '<strong>' + esc(log.username) + '</strong>' : '<span style="color:#4b5563">deleted</span>'}</td>
               <td>${actionBadge(log.action)}</td>
               <td>${log.detail ? esc(log.detail) : '<span style="color:#4b5563">\u2014</span>'}</td>
+              <td>${deviceBadge(log.ua)}</td>
               <td style="font-family:monospace;font-size:11px;color:#6b7280">${log.ip ? esc(log.ip) : '\u2014'}</td>
             </tr>`;
           }

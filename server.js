@@ -82,7 +82,7 @@ app.post("/api/register", async (req, res) => {
     if (!fs.existsSync(userUploads)) fs.mkdirSync(userUploads, { recursive: true });
 
     req.session.userId = user.id;
-    db.logActivity(user.id, "register", null, req.ip);
+    db.logActivity(user.id, "register", null, req.ip, req.headers["user-agent"]);
     res.json({ user: { id: user.id, username: user.username } });
   } catch (e) {
     console.error("Register error:", e);
@@ -125,7 +125,7 @@ app.post("/api/login", async (req, res) => {
     req.session.save((err) => {
       if (err) console.error("Session save error:", err);
       console.log(`[LOGIN] user="${user.username}" id=${user.id} sessionId=${req.sessionID}`);
-      db.logActivity(user.id, "login", null, req.ip);
+      db.logActivity(user.id, "login", null, req.ip, req.headers["user-agent"]);
       res.json({ user: { id: user.id, username: user.username } });
     });
   } catch (e) {
@@ -136,7 +136,7 @@ app.post("/api/login", async (req, res) => {
 
 app.post("/api/logout", (req, res) => {
   const uid = req.session?.userId;
-  if (uid) db.logActivity(uid, "logout", null, req.ip);
+  if (uid) db.logActivity(uid, "logout", null, req.ip, req.headers["user-agent"]);
   req.session.destroy(() => {
     res.clearCookie("connect.sid");
     res.json({ success: true });
@@ -273,7 +273,7 @@ app.post("/api/songs/bulk-meta", auth, (req, res) => {
     newSongs.push(song);
   }
 
-  if (newSongs.length > 0) db.logActivity(userId, "song_create", newSongs.length + " songs: " + newSongs.map(s => s.title).join(", "), req.ip);
+  if (newSongs.length > 0) db.logActivity(userId, "song_create", newSongs.length + " songs: " + newSongs.map(s => s.title).join(", "), req.ip, req.headers["user-agent"]);
   res.json(newSongs);
 });
 
@@ -312,7 +312,7 @@ app.post("/api/songs/bulk", auth, upload.array("audio", 200), (req, res) => {
     newSongs.push(song);
   }
 
-  if (newSongs.length > 0) db.logActivity(userId, "song_bulk_upload", newSongs.length + " songs: " + newSongs.map(s => s.title).join(", "), req.ip);
+  if (newSongs.length > 0) db.logActivity(userId, "song_bulk_upload", newSongs.length + " songs: " + newSongs.map(s => s.title).join(", "), req.ip, req.headers["user-agent"]);
   res.json(newSongs);
 });
 
@@ -332,7 +332,7 @@ app.post("/api/songs", auth, upload.single("audio"), (req, res) => {
     audioName: req.file ? req.file.originalname : null,
   };
   db.insertSong(song, userId);
-  db.logActivity(userId, "song_create", song.title, req.ip);
+  db.logActivity(userId, "song_create", song.title, req.ip, req.headers["user-agent"]);
   res.json(song);
 });
 
@@ -374,7 +374,7 @@ app.patch("/api/songs/batch-genre", auth, (req, res) => {
   const { ids, genre } = req.body;
   if (!ids || !Array.isArray(ids)) return res.status(400).json({ error: "ids array required" });
   db.batchUpdateGenre(ids, genre || "", req.session.userId);
-  db.logActivity(req.session.userId, "song_edit", ids.length + " songs → genre: " + (genre || "none"), req.ip);
+  db.logActivity(req.session.userId, "song_edit", ids.length + " songs → genre: " + (genre || "none"), req.ip, req.headers["user-agent"]);
   res.json({ updated: ids.length });
 });
 
@@ -393,7 +393,7 @@ app.post("/api/songs/batch-delete", auth, (req, res) => {
     }
     db.deleteSong(id, userId);
   }
-  db.logActivity(userId, "song_delete", ids.length + " songs", req.ip);
+  db.logActivity(userId, "song_delete", ids.length + " songs", req.ip, req.headers["user-agent"]);
   res.json({ deleted: ids.length });
 });
 
@@ -406,7 +406,7 @@ app.delete("/api/songs/:id", auth, (req, res) => {
     if (fs.existsSync(p)) fs.unlinkSync(p);
   }
   db.deleteSong(req.params.id, userId);
-  db.logActivity(userId, "song_delete", song?.title || req.params.id, req.ip);
+  db.logActivity(userId, "song_delete", song?.title || req.params.id, req.ip, req.headers["user-agent"]);
   res.json({ success: true });
 });
 

@@ -185,7 +185,7 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
                   edit
                 </button>
                 {onLogout && (
-                  <button onClick={onLogout}
+                  <button onClick={()=>{if(window.confirm("Are you sure you want to sign out?"))onLogout()}}
                     style={{background:"none",border:"1px solid #2a2a45",borderRadius:8,padding:"7px 14px",color:"#8a8aa0",fontSize:12,cursor:"pointer"}}
                     onMouseEnter={e=>{e.target.style.color="#ef4444";e.target.style.borderColor="#5a2a2a"}}
                     onMouseLeave={e=>{e.target.style.color="#8a8aa0";e.target.style.borderColor="#2a2a45"}}>

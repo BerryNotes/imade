@@ -464,15 +464,18 @@ function bulkReplace(userId, data) {
 
 // --- Activity log helpers ---
 
-function logActivity(userId, action, detail, ip) {
-  getDb().prepare(
-    "INSERT INTO activity_log (user_id, action, detail, ip) VALUES (?, ?, ?, ?)"
-  ).run(userId, action, detail || null, ip || null);
+function logActivity(userId, action, detail, ip, ua) {
+  const db = getDb();
+  // Ensure ua column exists
+  try { db.prepare("ALTER TABLE activity_log ADD COLUMN ua TEXT").run(); } catch {}
+  db.prepare(
+    "INSERT INTO activity_log (user_id, action, detail, ip, ua) VALUES (?, ?, ?, ?, ?)"
+  ).run(userId, action, detail || null, ip || null, ua || null);
 }
 
 function getActivityLog(limit = 50, offset = 0) {
   return getDb().prepare(`
-    SELECT a.id, a.user_id, u.username, a.action, a.detail, a.ip, a.created_at
+    SELECT a.id, a.user_id, u.username, a.action, a.detail, a.ip, a.ua, a.created_at
     FROM activity_log a LEFT JOIN users u ON a.user_id = u.id
     ORDER BY a.id DESC LIMIT ? OFFSET ?
   `).all(limit, offset);
