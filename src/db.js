@@ -91,6 +91,17 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_playlists_user ON playlists(user_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_expired ON sessions(expired);
 
+    CREATE TABLE IF NOT EXISTS email_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token TEXT NOT NULL UNIQUE,
+      type TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      used INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_email_tokens_token ON email_tokens(token);
+
     CREATE TABLE IF NOT EXISTS activity_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -120,6 +131,15 @@ function migrateSchema(db) {
   if (!actCols.includes("ua")) {
     db.exec("ALTER TABLE activity_log ADD COLUMN ua TEXT");
   }
+  // Email verification columns
+  if (!userCols.includes("email")) {
+    db.exec("ALTER TABLE users ADD COLUMN email TEXT");
+  }
+  if (!userCols.includes("email_verified")) {
+    db.exec("ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 0");
+    // Grandfather in all existing users as verified
+    db.exec("UPDATE users SET email_verified = 1");
+  }
 }
 
 // --- User helpers ---
@@ -134,7 +154,7 @@ function getUserByUsername(username) {
 }
 
 function getUserById(id) {
-  return getDb().prepare("SELECT id, username, plan, role, created_at FROM users WHERE id = ?").get(id);
+  return getDb().prepare("SELECT id, username, email, email_verified, plan, role, created_at FROM users WHERE id = ?").get(id);
 }
 
 function updateUserPlan(id, plan) {
@@ -149,7 +169,7 @@ function updateUserRole(id, role) {
 
 function getAllUsersWithStats() {
   return getDb().prepare(`
-    SELECT u.id, u.username, u.plan, u.role, u.created_at,
+    SELECT u.id, u.username, u.email, u.email_verified, u.plan, u.role, u.created_at,
       (SELECT COUNT(*) FROM songs WHERE user_id = u.id) AS song_count,
       (SELECT COUNT(*) FROM comparisons WHERE user_id = u.id) AS comparison_count,
       (SELECT COUNT(*) FROM playlists WHERE user_id = u.id) AS playlist_count
@@ -486,10 +506,46 @@ function getActivityLogCount() {
   return getDb().prepare("SELECT COUNT(*) AS count FROM activity_log").get().count;
 }
 
+// --- Email verification helpers ---
+
+function updateUserEmail(id, email) {
+  return getDb().prepare("UPDATE users SET email = ?, email_verified = 0 WHERE id = ?").run(email, id);
+}
+
+function setEmailVerified(id) {
+  return getDb().prepare("UPDATE users SET email_verified = 1 WHERE id = ?").run(id);
+}
+
+function getUserByEmail(email) {
+  return getDb().prepare("SELECT * FROM users WHERE LOWER(email) = LOWER(?)").get(email);
+}
+
+function createEmailToken(userId, token, type, expiresAt) {
+  return getDb().prepare(
+    "INSERT INTO email_tokens (user_id, token, type, expires_at) VALUES (?, ?, ?, ?)"
+  ).run(userId, token, type, expiresAt);
+}
+
+function getEmailToken(token) {
+  return getDb().prepare(
+    "SELECT * FROM email_tokens WHERE token = ? AND used = 0 AND expires_at > ?"
+  ).get(token, Date.now());
+}
+
+function markTokenUsed(token) {
+  return getDb().prepare("UPDATE email_tokens SET used = 1 WHERE token = ?").run(token);
+}
+
+function cleanExpiredTokens() {
+  getDb().prepare("DELETE FROM email_tokens WHERE expires_at < ? OR used = 1").run(Date.now());
+}
+
 module.exports = {
   getDb,
   createUser, getUserByUsername, getUserById, updateUserPlan, updateUserRole,
   getAllUsersWithStats, updateUserUsername, updateUserPassword, deleteUser,
+  updateUserEmail, setEmailVerified, getUserByEmail,
+  createEmailToken, getEmailToken, markTokenUsed, cleanExpiredTokens,
   getSongs, getSongById, insertSong, updateSong, deleteSong, batchUpdateGenre, rowToSong,
   getComparisons, insertComparison, deleteLastComparison, deleteAllComparisons,
   getGenres, addGenre, deleteGenre, renameGenre, setGenres,

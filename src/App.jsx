@@ -26,6 +26,8 @@ function App() {
   const [user, setUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [tab, setTab] = useState("library");
+  const [resetToken, setResetToken] = useState(null);
+  const [verifiedMessage, setVerifiedMessage] = useState('');
   const [songs, setSongs] = useState([]);
   const [genres, setGenres] = useState([]);
   const [comparisons, setComparisons] = useState([]);
@@ -57,8 +59,25 @@ function App() {
 
   const audio = useGlobalAudio();
 
-  // Auth check on mount
+  // Auth check on mount + URL token detection
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const path = window.location.pathname;
+
+    // Handle /reset-password?token=...
+    if (path === "/reset-password" && params.get("token")) {
+      setResetToken(params.get("token"));
+      window.history.replaceState({}, "", "/");
+      setAuthChecked(true);
+      return;
+    }
+
+    // Handle /?verified=1 (redirect from GET /api/verify-email)
+    if (params.get("verified") === "1") {
+      setVerifiedMessage("Email verified successfully! You can now sign in.");
+      window.history.replaceState({}, "", "/");
+    }
+
     // If user explicitly signed out, skip auto-login and show auth screen
     if (localStorage.getItem("imade_signedOut") === "1") {
       setAuthChecked(true);
@@ -395,7 +414,7 @@ function App() {
 
   // Auth gate
   if (!authChecked) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",color:"#6b7280"}}>Loading...</div>;
-  if (!user) return <AuthScreen onAuth={handleAuth} />;
+  if (!user) return <AuthScreen onAuth={handleAuth} resetToken={resetToken} verifiedMessage={verifiedMessage} />;
   if (!loaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",color:"#6b7280"}}>Loading...</div>;
 
   const tabs = [

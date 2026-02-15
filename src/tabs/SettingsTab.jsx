@@ -25,6 +25,7 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
   const importInputRef = useRef(null);
   const [editUsername, setEditUsername] = useState("");
   const [editPassword, setEditPassword] = useState("");
+  const [editEmail, setEditEmail] = useState("");
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const ranking = useRanking(songs, comparisons);
@@ -174,13 +175,24 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
                 </div>
                 <div style={{flex:1}}>
                   <div style={{color:"#e2e8f0",fontSize:14,fontWeight:600}}>{user.username}</div>
-                  <div style={{color:"#6b6b80",fontSize:12}}>
+                  {user.email && (
+                    <div style={{color:"#8a8aa0",fontSize:12,display:"flex",alignItems:"center",gap:4,marginTop:1}}>
+                      {user.email}
+                      <span style={{
+                        fontSize:10,padding:"1px 6px",borderRadius:4,fontWeight:600,
+                        background: user.emailVerified ? "#0a1a0a" : "#1a0a0a",
+                        color: user.emailVerified ? "#22c55e" : "#ef4444",
+                        border: user.emailVerified ? "1px solid #2a5a2a" : "1px solid #5a2a2a",
+                      }}>{user.emailVerified ? "verified" : "unverified"}</span>
+                    </div>
+                  )}
+                  <div style={{color:"#6b6b80",fontSize:12,marginTop:user.email?2:0}}>
                     {planInfo ? (
                       <span>{planInfo.plan === "full" ? "Full" : "Trial"}{planInfo.version ? " \u00B7 v" + planInfo.version : ""}</span>
                     ) : "Logged in"}
                   </div>
                 </div>
-                <button onClick={() => { setEditUsername(user.username); setEditPassword(""); setEditingProfile(true); }}
+                <button onClick={() => { setEditUsername(user.username); setEditPassword(""); setEditEmail(user.email || ""); setEditingProfile(true); }}
                   style={{background:"none",border:"1px solid #2a2a45",borderRadius:8,padding:"7px 14px",color:"#8a8aa0",fontSize:12,cursor:"pointer"}}
                   onMouseEnter={e=>e.target.style.color="#818cf8"} onMouseLeave={e=>e.target.style.color="#8a8aa0"}>
                   edit
@@ -211,6 +223,13 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
                     onFocus={e=>e.target.style.borderColor="#4338ca"} onBlur={e=>e.target.style.borderColor="#2a2a45"} />
                 </div>
                 <div>
+                  <div style={{color:"#6b6b80",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}}>Email</div>
+                  <input value={editEmail} onChange={e=>setEditEmail(e.target.value)} type="email" placeholder="your@email.com"
+                    style={{width:"100%",background:"#0d0d1a",border:"1px solid #2a2a45",borderRadius:8,padding:"9px 12px",color:"#e2e8f0",fontSize:13,outline:"none"}}
+                    onFocus={e=>e.target.style.borderColor="#4338ca"} onBlur={e=>e.target.style.borderColor="#2a2a45"} />
+                  {editEmail && editEmail !== (user.email || "") && <div style={{color:"#818cf8",fontSize:11,marginTop:4}}>Changing email will require re-verification</div>}
+                </div>
+                <div>
                   <div style={{color:"#6b6b80",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}}>New Password</div>
                   <input value={editPassword} onChange={e=>setEditPassword(e.target.value)} type="password" placeholder="Leave empty to keep current"
                     style={{width:"100%",background:"#0d0d1a",border:"1px solid #2a2a45",borderRadius:8,padding:"9px 12px",color:"#e2e8f0",fontSize:13,outline:"none"}}
@@ -226,13 +245,18 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
                   const body = {};
                   if (editUsername.trim() && editUsername.trim() !== user.username) body.username = editUsername.trim();
                   if (editPassword) body.password = editPassword;
+                  if (editEmail.trim() !== (user.email || "")) body.email = editEmail.trim();
                   if (Object.keys(body).length === 0) { setEditingProfile(false); return; }
                   setProfileSaving(true);
                   try {
                     const data = await api.updateProfile(body);
                     if (data.user) setUser(data.user);
                     setEditingProfile(false);
-                    showToast("Profile updated");
+                    if (data.emailChanged) {
+                      showToast("Profile updated. Check your email to verify the new address.");
+                    } else {
+                      showToast("Profile updated");
+                    }
                   } catch (e) { showToast(e.message || "Failed to update profile"); }
                   setProfileSaving(false);
                 }}

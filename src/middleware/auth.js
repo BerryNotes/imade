@@ -5,8 +5,11 @@ const db = require("../db");
 class SQLiteStore extends session.Store {
   constructor() {
     super();
-    // Clean expired sessions every 15 minutes
-    this._cleanTimer = setInterval(() => db.cleanExpiredSessions(), 15 * 60 * 1000);
+    // Clean expired sessions and tokens every 15 minutes
+    this._cleanTimer = setInterval(() => {
+      db.cleanExpiredSessions();
+      db.cleanExpiredTokens();
+    }, 15 * 60 * 1000);
   }
 
   get(sid, cb) {

@@ -7,9 +7,15 @@ async function handleResponse(r) {
   }
   if (!r.ok) {
     const text = await r.text().catch(() => "");
-    let msg;
-    try { msg = JSON.parse(text).error; } catch {}
-    throw new Error(msg || text || `Request failed (${r.status})`);
+    let parsed;
+    try { parsed = JSON.parse(text); } catch {}
+    if (parsed) {
+      const err = new Error(parsed.error || `Request failed (${r.status})`);
+      if (parsed.needsVerification) err.needsVerification = true;
+      if (parsed.email) err.email = parsed.email;
+      throw err;
+    }
+    throw new Error(text || `Request failed (${r.status})`);
   }
   return r.json();
 }
@@ -35,10 +41,16 @@ const api = {
 
   // Auth helpers
   login: (username, password) => api.post("/api/login", { username, password }),
-  register: (username, password) => api.post("/api/register", { username, password }),
+  register: (username, password, email) => api.post("/api/register", { username, password, email }),
   logout: () => api.post("/api/logout"),
   getMe: () => api.get("/api/me"),
   updateProfile: (fields) => api.put("/api/profile", fields),
+
+  // Email verification & password reset
+  verifyEmail: (token) => api.get("/api/verify-email?token=" + encodeURIComponent(token)),
+  resendVerification: (email) => api.post("/api/resend-verification", { email }),
+  forgotPassword: (email) => api.post("/api/forgot-password", { email }),
+  resetPassword: (token, password) => api.post("/api/reset-password", { token, password }),
 
   // Admin helpers
   adminGetUsers: () => api.get("/api/admin/users"),

@@ -3,6 +3,8 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
+const email = require("./src/email");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -63,13 +65,23 @@ const MAX_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
 
 app.post("/api/register", async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password, email: userEmail } = req.body;
   if (!username || !password) return res.status(400).json({ error: "Username and password required" });
   if (username.length < 2) return res.status(400).json({ error: "Username must be at least 2 characters" });
   if (password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
 
+  // Email required in web mode when Resend is configured
+  const emailRequired = !!process.env.RESEND_API_KEY;
+  if (emailRequired && !userEmail) return res.status(400).json({ error: "Email is required" });
+  if (userEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userEmail)) return res.status(400).json({ error: "Invalid email address" });
+
   const existing = db.getUserByUsername(username.trim());
   if (existing) return res.status(409).json({ error: "Username already taken" });
+
+  if (userEmail) {
+    const existingEmail = db.getUserByEmail(userEmail.trim());
+    if (existingEmail) return res.status(409).json({ error: "Email already in use" });
+  }
 
   try {
     const hash = await bcrypt.hash(password, 10);
@@ -84,8 +96,24 @@ app.post("/api/register", async (req, res) => {
     const userUploads = path.join(UPLOADS_DIR, String(user.id));
     if (!fs.existsSync(userUploads)) fs.mkdirSync(userUploads, { recursive: true });
 
-    req.session.userId = user.id;
     db.logActivity(user.id, "register", null, req.ip, req.headers["user-agent"]);
+
+    if (userEmail) {
+      db.updateUserEmail(user.id, userEmail.trim().toLowerCase());
+      // Send verification email
+      const token = crypto.randomBytes(32).toString("hex");
+      db.createEmailToken(user.id, token, "verify", Date.now() + 24 * 60 * 60 * 1000);
+      try {
+        await email.sendVerificationEmail(userEmail.trim().toLowerCase(), token);
+      } catch (e) {
+        console.error("Failed to send verification email:", e);
+      }
+      return res.json({ registered: true, needsVerification: true, message: "Check your email to verify your account" });
+    }
+
+    // No email — log in directly (Electron/local dev)
+    req.session.userId = user.id;
+    db.setEmailVerified(user.id);
     res.json({ user: { id: user.id, username: user.username } });
   } catch (e) {
     console.error("Register error:", e);
@@ -124,6 +152,12 @@ app.post("/api/login", async (req, res) => {
 
     // Reset attempts on success
     loginAttempts.delete(ip);
+
+    // Check email verification (only block if user has an email set)
+    if (user.email && !user.email_verified) {
+      return res.status(403).json({ error: "Please verify your email first", needsVerification: true, email: user.email });
+    }
+
     req.session.userId = user.id;
     req.session.save((err) => {
       if (err) console.error("Session save error:", err);
@@ -159,7 +193,7 @@ app.get("/api/me", auth, (req, res) => {
   const user = db.getUserById(req.session.userId);
   if (!user) return res.status(401).json({ error: "User not found" });
   console.log(`[ME] sessionUserId=${req.session.userId} username="${user.username}" sessionId=${req.sessionID}`);
-  res.json({ user: { id: user.id, username: user.username } });
+  res.json({ user: { id: user.id, username: user.username, email: user.email || null, emailVerified: !!user.email_verified } });
 });
 
 app.get("/api/plan", auth, (req, res) => {
@@ -178,7 +212,8 @@ app.get("/api/plan", auth, (req, res) => {
 app.put("/api/profile", auth, async (req, res) => {
   try {
     const userId = req.session.userId;
-    const { username, password } = req.body;
+    const { username, password, email: newEmail } = req.body;
+    let emailChanged = false;
     if (username) {
       if (username.trim().length < 2) return res.status(400).json({ error: "Username must be at least 2 characters" });
       const existing = db.getUserByUsername(username.trim());
@@ -190,9 +225,114 @@ app.put("/api/profile", auth, async (req, res) => {
       const hash = await bcrypt.hash(password, 10);
       db.updateUserPassword(userId, hash);
     }
+    if (newEmail !== undefined) {
+      const currentUser = db.getUserById(userId);
+      const trimmedEmail = newEmail.trim().toLowerCase();
+      if (trimmedEmail && trimmedEmail !== (currentUser.email || "").toLowerCase()) {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) return res.status(400).json({ error: "Invalid email address" });
+        const existingEmail = db.getUserByEmail(trimmedEmail);
+        if (existingEmail && existingEmail.id !== userId) return res.status(409).json({ error: "Email already in use" });
+        db.updateUserEmail(userId, trimmedEmail);
+        emailChanged = true;
+        // Send verification email for the new address
+        const token = crypto.randomBytes(32).toString("hex");
+        db.createEmailToken(userId, token, "verify", Date.now() + 24 * 60 * 60 * 1000);
+        try {
+          await email.sendVerificationEmail(trimmedEmail, token);
+        } catch (e) {
+          console.error("Failed to send verification email:", e);
+        }
+      }
+    }
     const user = db.getUserById(userId);
-    res.json({ user: { id: user.id, username: user.username } });
+    res.json({ user: { id: user.id, username: user.username, email: user.email || null, emailVerified: !!user.email_verified }, emailChanged });
   } catch (e) { console.error("Profile update error:", e); res.status(500).json({ error: e.message }); }
+});
+
+// ---- EMAIL VERIFICATION & PASSWORD RESET ----
+
+app.get("/api/verify-email", (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.status(400).json({ error: "Token required" });
+  const row = db.getEmailToken(token);
+  if (!row || row.type !== "verify") return res.status(400).json({ error: "Invalid or expired token" });
+  db.setEmailVerified(row.user_id);
+  db.markTokenUsed(token);
+  db.logActivity(row.user_id, "email_verified", null, req.ip, req.headers["user-agent"]);
+  // Auto-login: set session and redirect to app
+  req.session.userId = row.user_id;
+  req.session.save(() => {
+    res.redirect("/");
+  });
+});
+
+// Rate limit for forgot-password: { email: lastRequestTime }
+const forgotPasswordLimits = new Map();
+
+app.post("/api/forgot-password", async (req, res) => {
+  const { email: userEmail } = req.body;
+  if (!userEmail) return res.status(400).json({ error: "Email is required" });
+
+  // Always return the same message to prevent email enumeration
+  const successMsg = "If an account with that email exists, a reset link has been sent.";
+
+  // Rate limit: 1 request per email per minute
+  const key = userEmail.trim().toLowerCase();
+  const lastReq = forgotPasswordLimits.get(key);
+  if (lastReq && Date.now() - lastReq < 60000) {
+    return res.json({ message: successMsg });
+  }
+  forgotPasswordLimits.set(key, Date.now());
+
+  const user = db.getUserByEmail(key);
+  if (user) {
+    const token = crypto.randomBytes(32).toString("hex");
+    db.createEmailToken(user.id, token, "reset", Date.now() + 60 * 60 * 1000); // 1 hour
+    try {
+      await email.sendPasswordResetEmail(key, token);
+    } catch (e) {
+      console.error("Failed to send reset email:", e);
+    }
+    db.logActivity(user.id, "password_reset_requested", null, req.ip, req.headers["user-agent"]);
+  }
+
+  res.json({ message: successMsg });
+});
+
+app.post("/api/reset-password", async (req, res) => {
+  const { token, password } = req.body;
+  if (!token || !password) return res.status(400).json({ error: "Token and password required" });
+  if (password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
+
+  const row = db.getEmailToken(token);
+  if (!row || row.type !== "reset") return res.status(400).json({ error: "Invalid or expired reset link" });
+
+  const hash = await bcrypt.hash(password, 10);
+  db.updateUserPassword(row.user_id, hash);
+  db.markTokenUsed(token);
+  db.logActivity(row.user_id, "password_reset", null, req.ip, req.headers["user-agent"]);
+  res.json({ success: true, message: "Password has been reset. You can now log in." });
+});
+
+app.post("/api/resend-verification", async (req, res) => {
+  const { email: userEmail } = req.body;
+  if (!userEmail) return res.status(400).json({ error: "Email is required" });
+
+  const user = db.getUserByEmail(userEmail.trim().toLowerCase());
+  if (!user || user.email_verified) {
+    // Don't reveal whether account exists
+    return res.json({ message: "If the account exists and is unverified, a new link has been sent." });
+  }
+
+  const token = crypto.randomBytes(32).toString("hex");
+  db.createEmailToken(user.id, token, "verify", Date.now() + 24 * 60 * 60 * 1000);
+  try {
+    await email.sendVerificationEmail(user.email, token);
+  } catch (e) {
+    console.error("Failed to resend verification email:", e);
+  }
+
+  res.json({ message: "Verification email sent." });
 });
 
 // ---- PER-USER FILE UPLOADS ----

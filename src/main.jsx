@@ -12,3 +12,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     </ErrorBoundary>
   </AudioProvider>
 );
+
+if ('serviceWorker' in navigator && !window.electronAPI) {
+  navigator.serviceWorker.register('/sw.js');
+}
