@@ -22,7 +22,7 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
   const [genreSong, setGenreSong] = useState(null);
   const [genreValue, setGenreValue] = useState("");
   const [genreSaving, setGenreSaving] = useState(false);
-  const { play } = useGlobalAudio();
+  const { play, playingSrc } = useGlobalAudio();
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 640);
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 640);
@@ -334,15 +334,29 @@ function LibraryTab({ songs, genres, onRefresh, filterGenre, setFilterGenre, sel
                   showToast("Added to " + pl.name);
                 }}
                 onAddToQueue={(song) => {
-                  setPlayerQueue(prev => [...(prev || []), song]);
-                  showToast("Added to queue");
+                  if (!playingSrc) {
+                    setPlayerQueue([song]);
+                    setPlayerQueueIdx(0);
+                    play(song.audioFile);
+                    showToast("Now playing");
+                  } else {
+                    setPlayerQueue(prev => [...(prev || []), song]);
+                    showToast("Added to queue");
+                  }
                 }}
                 onPlayNext={(song) => {
-                  setPlayerQueue(prev => {
-                    if (!prev || prev.length === 0) return [song];
-                    return [...prev.slice(0, 1), song, ...prev.slice(1)];
-                  });
-                  showToast("Playing next");
+                  if (!playingSrc) {
+                    setPlayerQueue([song]);
+                    setPlayerQueueIdx(0);
+                    play(song.audioFile);
+                    showToast("Now playing");
+                  } else {
+                    setPlayerQueue(prev => {
+                      if (!prev || prev.length === 0) return [song];
+                      return [...prev.slice(0, 1), song, ...prev.slice(1)];
+                    });
+                    showToast("Playing next");
+                  }
                 }}
               />
             )}

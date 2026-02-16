@@ -4,12 +4,12 @@ import { useRanking } from '../hooks/useRanking';
 import { formatTime } from '../utils';
 import api from '../api';
 
-function PlayerTab({ songs, genres, comparisons, onRefresh, showToast, queue, setQueue, queueIdx, setQueueIdx, shuffle, setShuffle, loop, setLoop, switchTab }) {
+function PlayerTab({ songs, genres, comparisons, listenTimes, onRefresh, showToast, queue, setQueue, queueIdx, setQueueIdx, shuffle, setShuffle, loop, setLoop, switchTab }) {
   const audio = useGlobalAudio();
   const { play, pause, stop, toggle, seek, skip, playingSrc, currentTime, duration, isPlaying, setOnEnded, getSnapshot, volume, setVolume } = audio;
   const [editingGenre, setEditingGenre] = useState(false);
   const genreBoxRef = useRef(null);
-  const ranking = useRanking(songs, comparisons);
+  const ranking = useRanking(songs, comparisons, listenTimes);
 
   // Progress bar hooks (must be top-level, not inside IIFEs)
   const scrubRef = useRef(null);

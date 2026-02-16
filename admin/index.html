@@ -737,7 +737,7 @@
               <span class="badge ${plan === 'full' ? 'badge-full' : 'badge-trial'}">${plan}</span>
               ${u.email_verified ? '<span class="badge badge-verified">verified</span>' : u.email ? '<span class="badge badge-unverified">unverified</span>' : ''}
             </div>
-            <div class="detail-meta">ID: ${u.id}${u.email ? ' \u00b7 ' + esc(u.email) : ''} \u00b7 Joined ${formatDate(u.created_at)}</div>
+            <div class="detail-meta">ID: ${users.indexOf(u)}${u.email ? ' \u00b7 ' + esc(u.email) : ''} \u00b7 Joined ${formatDate(u.created_at)}</div>
           </div>
         </div>
         <div style="display:flex;gap:8px">

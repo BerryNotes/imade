@@ -604,7 +604,7 @@ function App() {
       <div style={{maxWidth:1200,margin:"0 auto",padding: tab === "visualizer" ? "0" : window.innerWidth < 640 ? "0 8px 40px" : "20px 24px 40px",overflowX:"clip"}}>
         {/* BattleTab uses display:none/block to preserve session state */}
         <div style={{display: tab === "battle" ? "block" : "none"}}>
-          {loaded && <BattleTab songs={songs} comparisons={comparisons} onRefresh={refresh} showToast={showToast} savedPair={battlePair} setSavedPair={setBattlePair}
+          {loaded && <BattleTab songs={songs} comparisons={comparisons} listenTimes={listenTimes} onRefresh={refresh} showToast={showToast} savedPair={battlePair} setSavedPair={setBattlePair}
             hasSeenIntro={hasSeenIntro} setHasSeenIntro={persistIntro} hasSeenPhase2={hasSeenPhase2} setHasSeenPhase2={persistPhase2}
             focusedSessionSongs={focusedSessionSongs} setFocusedSessionSongs={setFocusedSessionSongs} stopAudio={audio.stop}
             sessionLength={sessionLength} bracketSize={bracketSize} />}
@@ -613,7 +613,7 @@ function App() {
         {tab !== "battle" && tab !== "visualizer" && (
           <React.Suspense fallback={<div style={{textAlign:"center",padding:40,color:"#6b7280"}}>Loading...</div>}>
           <div key={tab} style={{animation:"tabFadeIn 0.2s ease-out"}}>
-            {tab === "player" && <PlayerTab songs={songs} genres={genres} comparisons={comparisons} onRefresh={refresh} showToast={showToast} switchTab={switchTab}
+            {tab === "player" && <PlayerTab songs={songs} genres={genres} comparisons={comparisons} listenTimes={listenTimes} onRefresh={refresh} showToast={showToast} switchTab={switchTab}
               queue={playerQueue} setQueue={setPlayerQueue} queueIdx={playerQueueIdx} setQueueIdx={setPlayerQueueIdx}
               shuffle={playerShuffle} setShuffle={setPlayerShuffle} loop={playerLoop} setLoop={setPlayerLoop} />}
             {tab === "library" && <LibraryTab songs={songs} genres={genres} onRefresh={refresh}
@@ -630,9 +630,9 @@ function App() {
               uploading={uploading} uploadDone={uploadDone} setUploadDone={setUploadDone}
               uploadProgress={uploadProgress} startUpload={startUpload} planInfo={planInfo} switchTab={switchTab}
               audioAvailable={audioAvailable} />}
-            {tab === "playlists" && <PlaylistsTab songs={songs} playlists={playlists} genres={genres} comparisons={comparisons} onRefresh={refresh} showToast={showToast}
+            {tab === "playlists" && <PlaylistsTab songs={songs} playlists={playlists} genres={genres} comparisons={comparisons} listenTimes={listenTimes} onRefresh={refresh} showToast={showToast}
               setPlayerQueue={setPlayerQueue} setPlayerQueueIdx={setPlayerQueueIdx} />}
-            {tab === "rankings" && <RankingsTab songs={songs} comparisons={comparisons} onRefresh={refresh} showToast={showToast}
+            {tab === "rankings" && <RankingsTab songs={songs} comparisons={comparisons} listenTimes={listenTimes} onRefresh={refresh} showToast={showToast}
               lastUpdateCompCount={lastUpdateCompCount} setLastUpdateCompCount={setLastUpdateCompCount} switchTab={switchTab}
               showVariance={showVariance} showWinLoss={showWinLoss} rowDensity={rowDensity}
               stickyTop={headerHeight}

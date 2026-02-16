@@ -4,7 +4,7 @@ import { useRanking } from '../hooks/useRanking';
 import api from '../api';
 
 // ========== TAB: Playlists ==========
-function PlaylistsTab({ songs, playlists, genres, comparisons, onRefresh, showToast, setPlayerQueue, setPlayerQueueIdx }) {
+function PlaylistsTab({ songs, playlists, genres, comparisons, listenTimes, onRefresh, showToast, setPlayerQueue, setPlayerQueueIdx }) {
   const [view, setView] = useState("list"); // "list" or "detail"
   const [activeId, setActiveId] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -22,7 +22,7 @@ function PlaylistsTab({ songs, playlists, genres, comparisons, onRefresh, showTo
   const plDragMouseY = useRef(0);
   const plScrollRef = useRef(null);
   const { play, toggle, playingSrc, isPlaying } = useGlobalAudio();
-  const ranking = useRanking(songs, comparisons);
+  const ranking = useRanking(songs, comparisons, listenTimes);
 
   const activePl = playlists.find(p => p.id === activeId);
 

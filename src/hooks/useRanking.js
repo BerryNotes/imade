@@ -1,6 +1,25 @@
 import { useMemo } from 'react';
 
-function useRanking(songs, comparisons) {
+const LISTEN_MAX_ADJ = 75;
+const LISTEN_SENSITIVITY = 1.0;
+
+function applyListenTimeAdj(standings, listenTimes) {
+  if (!listenTimes) return standings;
+  const entries = standings.filter(s => (listenTimes[s.id] || 0) > 0);
+  if (entries.length === 0) return standings;
+  const totalLT = entries.reduce((sum, s) => sum + listenTimes[s.id], 0);
+  const avgLT = totalLT / entries.length;
+  if (avgLT <= 0) return standings;
+  return standings.map(s => {
+    const lt = listenTimes[s.id] || 0;
+    if (lt <= 0) return { ...s, listenAdj: 0 };
+    const ratio = lt / avgLT;
+    const adj = Math.round(LISTEN_MAX_ADJ * Math.tanh(LISTEN_SENSITIVITY * (ratio - 1)));
+    return { ...s, elo: Math.max(0, Math.min(1000, s.elo + adj)), listenAdj: adj };
+  });
+}
+
+function useRanking(songs, comparisons, listenTimes) {
   return useMemo(() => {
     if (songs.length < 2) return { standings: [], compMap: {}, compCount: {}, unrankedCount: 0, rankedCount: 0, phase: 1, placementPct: 0, eloSnapshots: [] };
 
@@ -69,7 +88,7 @@ function useRanking(songs, comparisons) {
     const phase = placedCount >= songs.length ? 2 : 1;
     const placementPct = songs.length > 0 ? placedCount / songs.length : 0;
 
-    const standings = songs
+    const rawStandings = songs
       .map(s => ({
         ...s,
         elo: Math.round(s.baseElo > 0 ? s.baseElo : (elo[s.id] || 500)),
@@ -80,11 +99,14 @@ function useRanking(songs, comparisons) {
         losses: losses[s.id] || 0,
         lastComparedAt: lastCompared[s.id] || 0,
         totalComparisons: compCount[s.id] || 0,
-      }))
+        listenAdj: 0,
+      }));
+
+    const standings = applyListenTimeAdj(rawStandings, listenTimes)
       .sort((a, b) => b.elo - a.elo);
 
     return { standings, compMap, compPairCount, compCount, unrankedCount, rankedCount: songs.length - unrankedCount, phase, placementPct, eloSnapshots, finalElo };
-  }, [songs, comparisons]);
+  }, [songs, comparisons, listenTimes]);
 }
 
 function getPlacementPair(standings, compMap, compCount, genre, compPairCount) {
@@ -283,4 +305,4 @@ function getRefinementPair(standings, compMap, genre, compCount) {
   return null;
 }
 
-export { useRanking, getPlacementPair, getRefinementPair };
+export { useRanking, getPlacementPair, getRefinementPair, applyListenTimeAdj };

@@ -6,8 +6,8 @@ import ScrollToTop from '../components/ScrollToTop';
 import { useRanking } from '../hooks/useRanking';
 import api from '../api';
 
-function RankingsTab({ songs, comparisons, onRefresh, showToast, lastUpdateCompCount, setLastUpdateCompCount, setPlayerQueue, setPlayerQueueIdx, switchTab, showVariance, showWinLoss, rowDensity, stickyTop, audioAvailable }) {
-  const ranking = useRanking(songs, comparisons);
+function RankingsTab({ songs, comparisons, listenTimes, onRefresh, showToast, lastUpdateCompCount, setLastUpdateCompCount, setPlayerQueue, setPlayerQueueIdx, switchTab, showVariance, showWinLoss, rowDensity, stickyTop, audioAvailable }) {
+  const ranking = useRanking(songs, comparisons, listenTimes);
   const tournament = ranking;
   const [filterGenre, setFilterGenre] = useState("All");
   const [sortOrder, setSortOrder] = useState("desc");

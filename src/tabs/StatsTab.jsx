@@ -264,7 +264,7 @@ function handleChartMouseMove(e, chartRef, isDraggingRef, setDragEnd, setChartTo
 }
 
 function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setPlayerQueue, setPlayerQueueIdx, switchTab, playlists, onRefresh, showToast }) {
-  const ranking = useRanking(songs, comparisons);
+  const ranking = useRanking(songs, comparisons, listenTimes);
   const { standings } = ranking;
   const tournament = ranking; // alias
   const [statsSubTab, setStatsSubTab] = useState(() => comparisons.length > 0 ? "improvement" : "listening");
@@ -696,21 +696,6 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
 
       {/* Content */}
       <div style={{flex:1,minWidth:0}}>
-        {/* Summary cards — always visible */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:10,marginBottom:20}}>
-          {[
-            { label: "total songs", value: songs.length },
-            { label: "comparisons", value: comparisons.length },
-            { label: "progress", value: Math.round(songs.reduce((sum, s) => sum + Math.min(ranking.compCount[s.id] || 0, 3), 0) / Math.max(songs.length * 3, 1) * 100) + "%" },
-            { label: "genres", value: stats ? Object.keys(stats.genreCounts).length : Object.keys(baseGenreColorMap).length },
-          ].map(s => (
-            <div key={s.label} style={{background:"#14142a",border:"1px solid #1e1e35",borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
-              <div style={{color:"#818cf8",fontSize:20,fontWeight:700}}>{s.value}</div>
-              <div style={{color:"#6b6b80",fontSize:9,textTransform:"uppercase",letterSpacing:"0.08em",marginTop:3}}>{s.label}</div>
-            </div>
-          ))}
-        </div>
-
         {/* ===== IMPROVEMENT TAB ===== */}
         {stats && <div style={{display: statsSubTab === "improvement" ? "block" : "none"}}>
           {/* === Above Average Ring === */}
@@ -944,6 +929,19 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
 
         {/* ===== BREAKDOWN TAB ===== */}
         {stats && <div style={{display: statsSubTab === "breakdown" ? "block" : "none"}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:10,marginBottom:20}}>
+          {[
+            { label: "total songs", value: songs.length },
+            { label: "comparisons", value: comparisons.length },
+            { label: "progress", value: Math.round(songs.reduce((sum, s) => sum + Math.min(ranking.compCount[s.id] || 0, 3), 0) / Math.max(songs.length * 3, 1) * 100) + "%" },
+            { label: "genres", value: stats ? Object.keys(stats.genreCounts).length : Object.keys(baseGenreColorMap).length },
+          ].map(s => (
+            <div key={s.label} style={{background:"#14142a",border:"1px solid #1e1e35",borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
+              <div style={{color:"#818cf8",fontSize:20,fontWeight:700}}>{s.value}</div>
+              <div style={{color:"#6b6b80",fontSize:9,textTransform:"uppercase",letterSpacing:"0.08em",marginTop:3}}>{s.label}</div>
+            </div>
+          ))}
+        </div>
       <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
       <div ref={cardRef("breakdown",0)} style={{...cardStyle,flex:"1 1 240px",minWidth:200}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
@@ -1288,9 +1286,9 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
                         r = Math.round(210 - 170 * p); g = Math.round(210 - 10 * p + 30 * p); b = Math.round(50 * p);
                       }
                       // Brightness = song count — higher base, more range
-                      const alpha = 0.3 + 0.6 * (m.count / maxCount);
+                      const alpha = 0.15 + 0.35 * (m.count / maxCount);
                       bg = `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
-                      borderColor = `rgba(${r},${g},${b},${Math.min(0.8, alpha + 0.15).toFixed(2)})`;
+                      borderColor = `rgba(${r},${g},${b},${Math.min(0.9, alpha + 0.35).toFixed(2)})`;
                     }
                     const isSelected = selectedMonth === m.key;
                     return (
@@ -1374,7 +1372,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
                           {eloDiff !== null && <div style={{color:eloDiff >= 0 ? "#22c55e" : "#ef4444",fontSize:10}}>{eloDiff >= 0 ? "+" : ""}{eloDiff} vs prev</div>}
                         </div>
                         <div style={{background:"#1a1a30",borderRadius:10,padding:"12px",textAlign:"center"}}>
-                          <div style={{color:"#6b7280",fontSize:9,textTransform:"uppercase",marginBottom:4}}>above avg</div>
+                          <div style={{color:"#6b7280",fontSize:9,textTransform:"uppercase",marginBottom:4}}>songs above avg</div>
                           <div style={{color:"#e2e8f0",fontSize:20,fontWeight:700}}>{Math.round(m.aboveAvg / m.count * 100)}%</div>
                         </div>
                       </div>

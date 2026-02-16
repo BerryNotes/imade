@@ -9,12 +9,12 @@ import SessionSummary from '../components/SessionSummary';
 
 const REFINE_TARGET = 3;
 
-function BattleTab({ songs, comparisons, onRefresh, showToast, savedPair, setSavedPair, hasSeenIntro, setHasSeenIntro, hasSeenPhase2, setHasSeenPhase2, focusedSessionSongs, setFocusedSessionSongs, stopAudio, sessionLength, bracketSize: bracketSizeProp }) {
+function BattleTab({ songs, comparisons, listenTimes, onRefresh, showToast, savedPair, setSavedPair, hasSeenIntro, setHasSeenIntro, hasSeenPhase2, setHasSeenPhase2, focusedSessionSongs, setFocusedSessionSongs, stopAudio, sessionLength, bracketSize: bracketSizeProp }) {
   const refineTarget = sessionLength === "short" ? 2 : sessionLength === "long" ? 5 : REFINE_TARGET;
   const bracketSize = bracketSizeProp || 8;
   const [picking, setPicking] = useState(false);
   const [undoing, setUndoing] = useState(false);
-  const ranking = useRanking(songs, comparisons);
+  const ranking = useRanking(songs, comparisons, listenTimes);
   const { standings, compMap, compCount, compPairCount } = ranking;
 
   // Guided session state: null = landing, "tier" | "quick" | "refine" | "summary"

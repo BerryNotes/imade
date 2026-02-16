@@ -27,7 +27,7 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
   const [changingPassword, setChangingPassword] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
-  const ranking = useRanking(songs, comparisons);
+  const ranking = useRanking(songs, comparisons, listenTimes);
 
   // Draft state — only committed to parent on Save
   const [draftVariance, setDraftVariance] = useState(showVariance);
@@ -284,6 +284,23 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
       {/* ===== GENERAL TAB ===== */}
       {settingsTab === "general" && (
         <div>
+          {/* Save bar — only visible when drafts differ from current */}
+          {(draftVariance !== showVariance || draftWinLoss !== showWinLoss || draftSessionLength !== sessionLength || draftBracketSize !== bracketSize || draftRowDensity !== rowDensity) && (
+            <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:12,marginBottom:12}}>
+              <span style={{color:"#f59e0b",fontSize:12}}>Unsaved changes</span>
+              <button onClick={() => {
+                setShowVariance(draftVariance);
+                setShowWinLoss(draftWinLoss);
+                setSessionLength(draftSessionLength);
+                setBracketSize(draftBracketSize);
+                setRowDensity(draftRowDensity);
+                setSaved(true); showToast("Settings saved"); setTimeout(() => setSaved(false), 2000);
+              }}
+                style={{background:"linear-gradient(135deg,#4338ca,#6366f1)",border:"none",borderRadius:10,padding:"10px 24px",color:"#fff",fontSize:13,cursor:"pointer",fontWeight:600}}>
+                Save
+              </button>
+            </div>
+          )}
           {/* Sessions */}
           <div style={sec}>
             <div style={secT}>🎯 Sessions</div>
@@ -316,20 +333,6 @@ function SettingsTab({ genres, songs, comparisons, playlists, onRefresh, showToa
             </div>
           </div>
 
-          {/* Save button */}
-          <div style={{display:"flex",justifyContent:"flex-end",marginTop:4}}>
-            <button onClick={() => {
-              setShowVariance(draftVariance);
-              setShowWinLoss(draftWinLoss);
-              setSessionLength(draftSessionLength);
-              setBracketSize(draftBracketSize);
-              setRowDensity(draftRowDensity);
-              setSaved(true); showToast("Settings saved"); setTimeout(() => setSaved(false), 2000);
-            }}
-              style={{background: saved ? "linear-gradient(135deg,#22c55e,#16a34a)" : "linear-gradient(135deg,#4338ca,#6366f1)",border:"none",borderRadius:10,padding:"10px 24px",color:"#fff",fontSize:13,cursor:"pointer",fontWeight:600,transition:"background 0.2s"}}>
-              {saved ? "Saved" : "Save"}
-            </button>
-          </div>
         </div>
       )}
 
