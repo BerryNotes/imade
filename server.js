@@ -1,3 +1,4 @@
+require("dotenv").config();
 const express = require("express");
 const multer = require("multer");
 const path = require("path");
@@ -10,6 +11,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const IMADE_MODE = process.env.IMADE_MODE || "web"; // "electron" or "web"
 const TRIAL_SONG_LIMIT = 25;
+const DEFAULT_GENRES = ["Hip Hop", "R&B", "Pop", "Rock", "Electronic", "Jazz", "Lo-Fi", "Soul", "Funk", "Indie", "Ambient", "Trap", "Acoustic", "Experimental", "Other"];
 
 // In web mode, share the Electron app's data directory if it exists
 const SHARED_MODE = !process.env.APP_DATA_PATH && IMADE_MODE === "web" && (() => {
@@ -63,6 +65,13 @@ app.use("/api/admin", (req, res, next) => {
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
+// Ensure auth runs on admin API routes (establishes session for local/shared mode)
+app.use("/api/admin", (req, res, next) => {
+  // Skip auth for preflight and Bearer-token requests (handled by requireAdmin)
+  if (req.method === "OPTIONS") return next();
+  if (req.headers.authorization) return next();
+  auth(req, res, next);
+});
 
 // Auth middleware — auto-login when running locally (Electron or shared mode)
 const auth = (IMADE_MODE === "electron" || SHARED_MODE) ? electronAutoLogin : requireAuth;
@@ -99,7 +108,7 @@ app.post("/api/register", async (req, res) => {
     const user = db.getUserByUsername(username.trim());
 
     // Seed default genres for new user
-    const defaultGenres = ["Hip Hop", "R&B", "Pop", "Rock", "Electronic", "Jazz", "Lo-Fi", "Soul", "Funk", "Indie", "Ambient", "Trap", "Acoustic", "Experimental", "Other"];
+    const defaultGenres = DEFAULT_GENRES;
     for (const g of defaultGenres) db.addGenre(g, user.id);
 
     // Create user uploads directory
@@ -873,6 +882,7 @@ function requireAdmin(req, res, next) {
   }
   // Fall back to session-based auth (local/primary user)
   if (req.session && req.session.userId) {
+    if (req.session.userId === 1) return next(); // Primary user always has admin access
     const u = db.getUserById(req.session.userId);
     if (u && u.role === "admin") return next();
   }
@@ -903,7 +913,7 @@ app.post("/api/admin/users", requireAdmin, async (req, res) => {
     const hash = await bcrypt.hash(password, 10);
     db.createUser(username.trim(), hash);
     const user = db.getUserByUsername(username.trim());
-    const defaultGenres = ["Hip Hop", "R&B", "Pop", "Rock", "Electronic", "Jazz", "Lo-Fi", "Soul", "Funk", "Indie", "Ambient", "Trap", "Acoustic", "Experimental", "Other"];
+    const defaultGenres = DEFAULT_GENRES;
     for (const g of defaultGenres) db.addGenre(g, user.id);
     const userUploads = path.join(UPLOADS_DIR, String(user.id));
     if (!fs.existsSync(userUploads)) fs.mkdirSync(userUploads, { recursive: true });
@@ -1026,7 +1036,29 @@ app.get("/api/admin/activity", requireAdmin, (req, res) => {
 // ---- ADMIN PANEL (separate static site) ----
 
 const ADMIN_DIR = path.join(__dirname, "admin");
+// Inject auto-token script when serving admin locally (skips login screen)
+app.get("/admin", auth, requireAdmin, (req, res, next) => {
+  if (req.session && req.session.userId === 1) {
+    const html = fs.readFileSync(path.join(ADMIN_DIR, "index.html"), "utf-8");
+    const injected = html.replace("</head>",
+      `<script>window.__ADMIN_TOKEN__="${ADMIN_TOKEN}";</script></head>`);
+    return res.type("html").send(injected);
+  }
+  next();
+});
+app.get("/admin/", auth, requireAdmin, (req, res, next) => {
+  if (req.session && req.session.userId === 1) {
+    const html = fs.readFileSync(path.join(ADMIN_DIR, "index.html"), "utf-8");
+    const injected = html.replace("</head>",
+      `<script>window.__ADMIN_TOKEN__="${ADMIN_TOKEN}";</script></head>`);
+    return res.type("html").send(injected);
+  }
+  next();
+});
 app.use("/admin", auth, requireAdmin, express.static(ADMIN_DIR));
+
+// ---- VISUALIZER GRID (standalone screenshot tool) ----
+app.get("/visualizer-grid", (req, res) => res.sendFile(path.join(__dirname, "visualizer-grid.html")));
 
 // ---- FRONTEND ----
 

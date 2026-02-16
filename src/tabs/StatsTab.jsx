@@ -299,7 +299,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
   const [showFitLine, setShowFitLine] = useState(false);
   const [chartGenre, setChartGenre] = useState("");
   const [hoveredBucket, setHoveredBucket] = useState(null);
-  const [hoveredMonth, setHoveredMonth] = useState(null);
+  const [selectedMonth, setSelectedMonth] = useState(null);
   const chartPointsRef = useRef([]);
   const fitLineRef = useRef(null);
   const chartViewRef = useRef({ fullMinDate: 0, fullMaxDate: 1, pad: { left: 50, right: 20 }, plotW: 100 });
@@ -520,8 +520,15 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
       const key = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}`;
       const songs = monthMap[key] || [];
       const avgElo = songs.length > 0 ? songs.reduce((s, x) => s + x.elo, 0) / songs.length : null;
-      const topSongs = songs.sort((a, b) => b.elo - a.elo).slice(0, 5);
-      months.push({ key, year: cur.getFullYear(), month: cur.getMonth(), count: songs.length, avgElo: avgElo !== null ? Math.round(avgElo) : null, topSongs });
+      const sorted = [...songs].sort((a, b) => b.elo - a.elo);
+      const topSongs = sorted.slice(0, 5);
+      const genres = {};
+      songs.forEach(s => { const g = s.genre || "No Genre"; genres[g] = (genres[g] || 0) + 1; });
+      const topGenre = Object.entries(genres).sort((a, b) => b[1] - a[1])[0];
+      const highElo = sorted.length > 0 ? sorted[0].elo : null;
+      const lowElo = sorted.length > 0 ? sorted[sorted.length - 1].elo : null;
+      const aboveAvg = songs.filter(s => s.elo >= overallAvg).length;
+      months.push({ key, year: cur.getFullYear(), month: cur.getMonth(), count: songs.length, avgElo: avgElo !== null ? Math.round(avgElo) : null, topSongs, allSongs: sorted, genres, topGenre: topGenre ? topGenre[0] : null, highElo, lowElo, aboveAvg });
       cur.setMonth(cur.getMonth() + 1);
     }
 
@@ -662,7 +669,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
     { id: "improvement", label: "Improvement", icon: "\u{1F4C8}" },
     { id: "breakdown", label: "Breakdown", icon: "\u{1F4CA}" },
     { id: "listening", label: "Listening", icon: "\u{1F3A7}" },
-    { id: "growth", label: "Growth", icon: "\u{1F680}" },
+    { id: "growth", label: "Timeline", icon: "\u{1F680}" },
     { id: "portfolio", label: "Portfolio", icon: "\u{1F3AF}" },
   ];
   const subTabs = hasComparisons ? allSubTabs : allSubTabs.filter(t => t.id === "listening");
@@ -1244,7 +1251,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
       })()}
           </div>
 
-        {/* ===== GROWTH TAB ===== */}
+        {/* ===== TIMELINE TAB ===== */}
         {stats && <div style={{display: statsSubTab === "growth" ? "block" : "none"}}>
           {creativeStreaks ? (
             <div>
@@ -1252,107 +1259,172 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
               <div ref={cardRef("growth",0)} style={{...cardStyle,marginBottom:16}}>
                 <div style={headStyle}>monthly output</div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(56px,1fr))",gap:4}}>
-                  {(() => { const maxCount = Math.max(...creativeStreaks.months.map(m => m.count), 1); return creativeStreaks.months.map(m => {
-                    const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+                  {(() => { const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+                    const allElos = creativeStreaks.months.filter(m => m.avgElo !== null).map(m => m.avgElo);
+                    const minElo = Math.min(...allElos, creativeStreaks.overallAvg);
+                    const maxElo = Math.max(...allElos, creativeStreaks.overallAvg);
+                    const eloRange = maxElo - minElo || 1;
+                    const maxCount = Math.max(...creativeStreaks.months.map(m => m.count), 1);
+                    return creativeStreaks.months.map(m => {
                     let bg = "#1e1e35";
-                    let glow = "none";
-                    if (m.count > 0) {
-                      const brightness = 0.15 + 0.85 * (m.count / maxCount);
-                      const isAboveAvg = m.avgElo >= creativeStreaks.overallAvg;
-                      const r = isAboveAvg ? 34 : Math.round(239 - (239 - 180) * brightness);
-                      const g = isAboveAvg ? Math.round(140 + 57 * brightness) : Math.round(68 * (1 - brightness * 0.5));
-                      const b = isAboveAvg ? Math.round(94 * brightness) : Math.round(68 * (1 - brightness * 0.3));
-                      bg = `rgba(${r},${g},${b},${Math.min(0.9, 0.15 + 0.75 * brightness)})`;
-                      if (brightness > 0.5) {
-                        const glowColor = isAboveAvg ? `rgba(34,197,94,${0.15 + 0.35 * brightness})` : `rgba(239,68,68,${0.1 + 0.25 * brightness})`;
-                        glow = `inset 0 0 ${Math.round(8 + 16 * brightness)}px ${glowColor}`;
+                    let borderColor = "transparent";
+                    if (m.count > 0 && m.avgElo !== null) {
+                      // t: 0=worst elo, 1=best elo. Squeeze yellow zone so more red/green shows
+                      const raw = (m.avgElo - minElo) / eloRange;
+                      // S-curve: pushes values away from 0.5 (less yellow, more red/green)
+                      const t = raw < 0.5 ? 0.5 * Math.pow(2 * raw, 2.8) : 1 - 0.5 * Math.pow(2 * (1 - raw), 2.8);
+                      let r, g, b;
+                      if (t < 0.4) {
+                        // Red to orange
+                        const p = t / 0.4;
+                        r = 240; g = Math.round(55 + 130 * p); b = Math.round(40 * (1 - p));
+                      } else if (t < 0.6) {
+                        // Orange/yellow (narrow band)
+                        const p = (t - 0.4) / 0.2;
+                        r = Math.round(240 - 30 * p); g = Math.round(185 + 25 * p); b = 0;
+                      } else {
+                        // Green range (wide)
+                        const p = (t - 0.6) / 0.4;
+                        r = Math.round(210 - 170 * p); g = Math.round(210 - 10 * p + 30 * p); b = Math.round(50 * p);
                       }
+                      // Brightness = song count — higher base, more range
+                      const alpha = 0.3 + 0.6 * (m.count / maxCount);
+                      bg = `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
+                      borderColor = `rgba(${r},${g},${b},${Math.min(0.8, alpha + 0.15).toFixed(2)})`;
                     }
-                    const isHovered = hoveredMonth === m.key;
+                    const isSelected = selectedMonth === m.key;
                     return (
-                      <div key={m.key} style={{position:"relative"}}
-                        onMouseEnter={() => setHoveredMonth(m.key)} onMouseLeave={() => setHoveredMonth(null)}>
+                      <div key={m.key}
+                        onClick={() => m.count > 0 && setSelectedMonth(isSelected ? null : m.key)}>
                         <div style={{background:bg,borderRadius:6,padding:"6px 4px",textAlign:"center",minHeight:40,display:"flex",flexDirection:"column",justifyContent:"center",
-                          boxShadow:glow,
-                          border: isHovered ? "1px solid #818cf8" : m.count > 0 && (m.count / maxCount) > 0.5 ? `1px solid ${m.avgElo >= creativeStreaks.overallAvg ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.2)"}` : "1px solid transparent",
-                          transition:"all 0.15s",cursor:m.count > 0 ? "default" : undefined}}>
+                          border: isSelected ? "1px solid #818cf8" : m.count > 0 ? `1px solid ${borderColor}` : "1px solid transparent",
+                          transition:"all 0.15s",cursor:m.count > 0 ? "pointer" : undefined}}>
                           <div style={{color:"#9a9ab0",fontSize:8}}>{monthNames[m.month]} {String(m.year).slice(2)}</div>
                           <div style={{color:m.count > 0 ? "#e2e8f0" : "#5a5a70",fontSize:13,fontWeight:700}}>{m.count || "-"}</div>
                           {m.avgElo !== null && <div style={{color:"#9a9ab0",fontSize:8}}>{m.avgElo}</div>}
                         </div>
-                        {isHovered && m.count > 0 && (
-                          <div style={{position:"absolute",bottom:"calc(100% + 6px)",left:"50%",transform:"translateX(-50%)",
-                            background:"#1a1a30",border:"1px solid #2a2a45",borderRadius:10,padding:"10px 14px",zIndex:20,
-                            minWidth:160,boxShadow:"0 8px 24px rgba(0,0,0,0.5)",pointerEvents:"none"}}>
-                            <div style={{color:"#e2e8f0",fontSize:12,fontWeight:600,marginBottom:6}}>{monthNames[m.month]} {m.year}</div>
-                            <div style={{display:"flex",gap:16,marginBottom:m.topSongs.length > 0 ? 8 : 0}}>
-                              <div><div style={{color:"#6b7280",fontSize:9,textTransform:"uppercase"}}>songs</div><div style={{color:"#818cf8",fontSize:14,fontWeight:700}}>{m.count}</div></div>
-                              <div><div style={{color:"#6b7280",fontSize:9,textTransform:"uppercase"}}>avg elo</div><div style={{color:m.avgElo >= creativeStreaks.overallAvg ? "#22c55e" : "#ef4444",fontSize:14,fontWeight:700}}>{m.avgElo}</div></div>
-                            </div>
-                            {m.topSongs.length > 0 && (
-                              <div style={{borderTop:"1px solid #2a2a45",paddingTop:6}}>
-                                <div style={{color:"#6b7280",fontSize:9,textTransform:"uppercase",marginBottom:4}}>{m.topSongs.length < m.count ? "top songs" : "songs"}</div>
-                                {m.topSongs.map(s => (
-                                  <div key={s.id} style={{display:"flex",justifyContent:"space-between",gap:8,marginBottom:2}}>
-                                    <span style={{color:"#c4c4d4",fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.title}</span>
-                                    <span style={{color:"#6b7280",fontSize:10,flexShrink:0}}>{s.elo}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
                       </div>
                     );
                   }); })()}
                 </div>
+                {/* Legend */}
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:10,gap:12,flexWrap:"wrap"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{color:"#6b7280",fontSize:10}}>avg elo:</span>
+                    <div style={{display:"flex",alignItems:"center",gap:4}}>
+                      <div style={{width:10,height:10,borderRadius:3,background:"rgba(240,55,40,0.6)"}}></div>
+                      <span style={{color:"#6b7280",fontSize:9}}>low</span>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:4}}>
+                      <div style={{width:10,height:10,borderRadius:3,background:"rgba(220,195,0,0.6)"}}></div>
+                      <span style={{color:"#6b7280",fontSize:9}}>avg</span>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:4}}>
+                      <div style={{width:10,height:10,borderRadius:3,background:"rgba(50,210,60,0.6)"}}></div>
+                      <span style={{color:"#6b7280",fontSize:9}}>high</span>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{color:"#6b7280",fontSize:10}}>output:</span>
+                    <div style={{display:"flex",alignItems:"center",gap:4}}>
+                      <div style={{width:10,height:10,borderRadius:3,background:"rgba(130,130,160,0.3)",border:"1px solid rgba(130,130,160,0.35)"}}></div>
+                      <span style={{color:"#6b7280",fontSize:9}}>few</span>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:4}}>
+                      <div style={{width:10,height:10,borderRadius:3,background:"rgba(130,130,160,0.8)",border:"1px solid rgba(130,130,160,0.85)"}}></div>
+                      <span style={{color:"#6b7280",fontSize:9}}>many</span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              {/* Hot & Cold Streaks Side by Side */}
-              <div ref={cardRef("growth",1)} style={{display:"flex",gap:16,flexWrap:"wrap"}}>
-                <div style={{...cardStyle,flex:"1 1 240px",minWidth:200}}>
-                  <div style={{color:"#22c55e",fontSize:10,fontWeight:600,marginBottom:8,textTransform:"uppercase"}}>
-                    hot streaks ({creativeStreaks.hotStreaks.length})
-                  </div>
-                  {creativeStreaks.hotStreaks.length === 0 && (
-                    <div style={{color:"#5a5a70",fontSize:11}}>No hot streaks yet</div>
-                  )}
-                  {creativeStreaks.hotStreaks.map((streak, si) => (
-                    <div key={si} style={{background:"#22c55e08",border:"1px solid #22c55e20",borderRadius:8,padding:"8px 12px",marginBottom:6}}>
-                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                        <span style={{color:"#22c55e",fontSize:10,fontWeight:600}}>{streak.songs.length} songs, avg {streak.avgElo}</span>
-                        <span style={{color:"#5a5a70",fontSize:9}}>{new Date(streak.startDate).toLocaleDateString("en",{month:"short",year:"numeric"})} {"\u2013"} {new Date(streak.endDate).toLocaleDateString("en",{month:"short",year:"numeric"})}</span>
+              {/* Month Detail — inline below grid */}
+              {selectedMonth && (() => {
+                const m = creativeStreaks.months.find(x => x.key === selectedMonth);
+                if (!m || m.count === 0) return null;
+                const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+                const prevMonth = creativeStreaks.months.find(x => {
+                  const d = new Date(m.year, m.month - 1, 1);
+                  return x.key === `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+                });
+                const eloDiff = prevMonth && prevMonth.avgElo !== null ? m.avgElo - prevMonth.avgElo : null;
+                const activeMonths = creativeStreaks.months.filter(x => x.count > 0);
+                const avgPerMonth = activeMonths.length > 0 ? activeMonths.reduce((s, x) => s + x.count, 0) / activeMonths.length : 0;
+                const countDiff = avgPerMonth > 0 ? m.count - Math.round(avgPerMonth) : null;
+                const genreEntries = Object.entries(m.genres).sort((a, b) => b[1] - a[1]);
+                const eloSpread = m.highElo !== null && m.lowElo !== null ? m.highElo - m.lowElo : 0;
+                return (
+                  <div style={{...cardStyle,marginBottom:16}}>
+                      {/* Header */}
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+                        <h3 style={{margin:0,color:"#e2e8f0",fontSize:18,fontWeight:700}}>{monthNames[m.month]} {m.year}</h3>
+                        <button onClick={() => setSelectedMonth(null)} style={{background:"none",border:"1px solid #2a2a45",borderRadius:8,color:"#6b6b80",fontSize:12,cursor:"pointer",padding:"4px 12px"}}>close</button>
                       </div>
-                      {streak.songs.map(s => (
-                        <div key={s.id} style={{color:"#e2e8f0",fontSize:10,marginBottom:1}}>{s.title} <span style={{color:"#22c55e"}}>{s.elo}</span></div>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-                <div style={{...cardStyle,flex:"1 1 240px",minWidth:200}}>
-                  <div style={{color:"#ef4444",fontSize:10,fontWeight:600,marginBottom:8,textTransform:"uppercase"}}>
-                    cold streaks ({creativeStreaks.coldStreaks.length})
-                  </div>
-                  {creativeStreaks.coldStreaks.length === 0 && (
-                    <div style={{color:"#5a5a70",fontSize:11}}>No cold streaks yet</div>
-                  )}
-                  {creativeStreaks.coldStreaks.map((streak, si) => (
-                    <div key={si} style={{background:"#ef444408",border:"1px solid #ef444420",borderRadius:8,padding:"8px 12px",marginBottom:6}}>
-                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                        <span style={{color:"#ef4444",fontSize:10,fontWeight:600}}>{streak.songs.length} songs, avg {streak.avgElo}</span>
-                        <span style={{color:"#5a5a70",fontSize:9}}>{new Date(streak.startDate).toLocaleDateString("en",{month:"short",year:"numeric"})} {"\u2013"} {new Date(streak.endDate).toLocaleDateString("en",{month:"short",year:"numeric"})}</span>
+
+                      {/* Key Stats */}
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:20}}>
+                        <div style={{background:"#1a1a30",borderRadius:10,padding:"12px",textAlign:"center"}}>
+                          <div style={{color:"#6b7280",fontSize:9,textTransform:"uppercase",marginBottom:4}}>songs</div>
+                          <div style={{color:"#818cf8",fontSize:20,fontWeight:700}}>{m.count}</div>
+                          {countDiff !== null && <div style={{color:countDiff >= 0 ? "#22c55e" : "#ef4444",fontSize:10}}>{countDiff >= 0 ? "+" : ""}{countDiff} vs avg</div>}
+                        </div>
+                        <div style={{background:"#1a1a30",borderRadius:10,padding:"12px",textAlign:"center"}}>
+                          <div style={{color:"#6b7280",fontSize:9,textTransform:"uppercase",marginBottom:4}}>avg elo</div>
+                          <div style={{color:m.avgElo >= creativeStreaks.overallAvg ? "#22c55e" : "#ef4444",fontSize:20,fontWeight:700}}>{m.avgElo}</div>
+                          {eloDiff !== null && <div style={{color:eloDiff >= 0 ? "#22c55e" : "#ef4444",fontSize:10}}>{eloDiff >= 0 ? "+" : ""}{eloDiff} vs prev</div>}
+                        </div>
+                        <div style={{background:"#1a1a30",borderRadius:10,padding:"12px",textAlign:"center"}}>
+                          <div style={{color:"#6b7280",fontSize:9,textTransform:"uppercase",marginBottom:4}}>above avg</div>
+                          <div style={{color:"#e2e8f0",fontSize:20,fontWeight:700}}>{Math.round(m.aboveAvg / m.count * 100)}%</div>
+                        </div>
                       </div>
-                      {streak.songs.map(s => (
-                        <div key={s.id} style={{color:"#e2e8f0",fontSize:10,marginBottom:1}}>{s.title} <span style={{color:"#ef4444"}}>{s.elo}</span></div>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              </div>
+
+                      {/* Elo Range */}
+                      <div style={{background:"#1a1a30",borderRadius:10,padding:"12px 16px",marginBottom:16}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                          <span style={{color:"#6b7280",fontSize:9,textTransform:"uppercase"}}>elo range</span>
+                          <span style={{color:"#6b7280",fontSize:10}}>spread: {eloSpread}</span>
+                        </div>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                          <span style={{color:"#ef4444",fontSize:13,fontWeight:600}}>{m.lowElo}</span>
+                          <div style={{flex:1,margin:"0 12px",height:4,borderRadius:2,background:"linear-gradient(90deg,#ef4444,#f59e0b,#22c55e)"}}></div>
+                          <span style={{color:"#22c55e",fontSize:13,fontWeight:600}}>{m.highElo}</span>
+                        </div>
+                      </div>
+
+                      {/* Genre Breakdown */}
+                      {genreEntries.length > 0 && (
+                        <div style={{marginBottom:16}}>
+                          <div style={{color:"#6b7280",fontSize:9,textTransform:"uppercase",marginBottom:8}}>genre breakdown</div>
+                          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                            {genreEntries.map(([g, count]) => (
+                              <span key={g} style={{background:"#1a1a30",border:"1px solid #2a2a45",borderRadius:6,padding:"4px 10px",fontSize:11,color:"#c4c4d4"}}>
+                                {g} <span style={{color:"#818cf8",fontWeight:600}}>{count}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* All Songs */}
+                      <div>
+                        <div style={{color:"#6b7280",fontSize:9,textTransform:"uppercase",marginBottom:8}}>all songs</div>
+                        {m.allSongs.map((s, i) => (
+                          <div key={s.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom: i < m.allSongs.length - 1 ? "1px solid #1e1e35" : "none"}}>
+                            <span style={{color:"#5a5a70",fontSize:10,width:16,textAlign:"right",flexShrink:0}}>{i + 1}</span>
+                            <span style={{color:"#e2e8f0",fontSize:12,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.title}</span>
+                            {s.genre && <span style={{color:"#6b7280",fontSize:10,flexShrink:0}}>{s.genre}</span>}
+                            <span style={{color:s.elo >= creativeStreaks.overallAvg ? "#22c55e" : "#ef4444",fontSize:12,fontWeight:600,flexShrink:0}}>{s.elo}</span>
+                          </div>
+                        ))}
+                      </div>
+                  </div>
+                );
+              })()}
             </div>
           ) : (
             <div style={{...cardStyle,textAlign:"center",padding:40}}>
-              <p style={{color:"#6b6b80",fontSize:14}}>Need at least 5 ranked songs with dates for growth analysis</p>
+              <p style={{color:"#6b6b80",fontSize:14}}>Need at least 5 ranked songs with dates for timeline analysis</p>
             </div>
           )}
         </div>}

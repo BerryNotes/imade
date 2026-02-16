@@ -13,7 +13,7 @@ select option{background:#1a1a30;color:#e2e8f0}
 @keyframes tabFadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 @keyframes staggerFadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 @keyframes cardEntrance{from{opacity:0;transform:scale(0.96) translateY(10px)}to{opacity:1;transform:scale(1) translateY(0)}}
-@keyframes winPulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,0.4)}50%{box-shadow:0 0 20px 4px rgba(34,197,94,0.25)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
-@keyframes loseShrink{from{opacity:1;transform:scale(1)}to{opacity:0.4;transform:scale(0.95)}}
+@keyframes winPulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,0.4);opacity:1}50%{box-shadow:0 0 20px 4px rgba(34,197,94,0.25);opacity:1}80%{opacity:1}100%{box-shadow:0 0 0 0 rgba(34,197,94,0);opacity:0}}
+@keyframes loseShrink{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(0.95)}}
 @keyframes statPanelIn{from{opacity:0;transform:translateY(10px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}

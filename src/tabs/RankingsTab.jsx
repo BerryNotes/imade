@@ -166,6 +166,12 @@ function RankingsTab({ songs, comparisons, onRefresh, showToast, lastUpdateCompC
     return ["All", ...(hasNoGenreSongs ? ["No Genre"] : []), ...new Set(songs.map(s=>s.genre).filter(Boolean))];
   }, [songs]);
 
+  useEffect(() => {
+    if (filterGenre !== "All" && !usedGenres.includes(filterGenre)) {
+      setFilterGenre("All");
+    }
+  }, [usedGenres, filterGenre]);
+
   const { filtered, unrankedInFilter } = useMemo(() => {
     const allFiltered = filterGenre === "All" ? tournament.standings
       : filterGenre === "No Genre" ? tournament.standings.filter(s => !s.genre)

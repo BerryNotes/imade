@@ -145,7 +145,7 @@ function BracketMode({ songs, standings, compMap, submitComparison, onRefresh, s
       <div style={{
         animation: !winnerSide ? "cardEntrance 0.25s ease-out both" : undefined,
         animationDelay: side === "right" ? "0.08s" : "0s",
-        ...(isWinner ? {animation:"winPulse 0.4s ease-out",borderRadius:16} : {}),
+        ...(isWinner ? {animation:"winPulse 0.35s ease-out forwards",borderRadius:16} : {}),
         ...(isLoser ? {animation:"loseShrink 0.35s ease-out forwards"} : {}),
       }}>
         <div style={{background:"#14142a",border: isWinner ? "1px solid #22c55e" : "1px solid #2a2a45",borderRadius:16,padding:20,transition:"border-color 0.2s ease"}}>

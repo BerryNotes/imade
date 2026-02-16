@@ -355,11 +355,11 @@
       });
     });
 
-    // Auto-connect when served locally (same-origin, session auth)
+    // Auto-connect when served locally (session auth or injected token)
     const isLocal = location.pathname.startsWith('/admin');
     if (isLocal) {
       API = location.origin;
-      TOKEN = '__session__';
+      TOKEN = window.__ADMIN_TOKEN__ || '__session__';
       showDashboard();
       loadUsers();
     } else {
@@ -1124,6 +1124,8 @@
       document.getElementById('activity-search')?.addEventListener('input', (e) => {
         activitySearch = e.target.value;
         renderActivity();
+        const input = document.getElementById('activity-search');
+        if (input) { input.focus(); input.selectionStart = input.selectionEnd = input.value.length; }
       });
       el.querySelectorAll('[data-activity-expand]').forEach(row => {
         row.addEventListener('click', () => {

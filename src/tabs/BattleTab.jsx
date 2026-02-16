@@ -264,21 +264,6 @@ function BattleTab({ songs, comparisons, onRefresh, showToast, savedPair, setSav
   };
   const sessionPct = getSessionProgress();
 
-  const ProgressBar = () => {
-    if (!sessionPhase || sessionPhase === "summary") return null;
-    return (
-      <div style={{marginBottom:16}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-          <span style={{color:"#818cf8",fontSize:12,fontWeight:700}}>{sessionPct}%</span>
-          <button onClick={() => { stopAudio(); setSessionPhase(null); }}
-            style={{background:"#ef444420",border:"1px solid #ef444440",borderRadius:8,color:"#ef4444",fontSize:11,fontWeight:600,cursor:"pointer",padding:"5px 12px"}}>✕ end session</button>
-        </div>
-        <div style={{height:5,background:"#1a1a2e",borderRadius:3,overflow:"hidden"}}>
-          <div style={{width:sessionPct+"%",height:"100%",background:"linear-gradient(90deg,#4338ca,#818cf8)",borderRadius:3,transition:"width 0.4s ease"}} />
-        </div>
-      </div>
-    );
-  };
 
 
   // ========== MAIN RETURN ==========
@@ -342,7 +327,18 @@ function BattleTab({ songs, comparisons, onRefresh, showToast, savedPair, setSav
       )}
 
       {/* ========== GUIDED SESSION PHASES ========== */}
-      {sessionPhase && sessionPhase !== "summary" && <ProgressBar />}
+      {sessionPhase && sessionPhase !== "summary" && (
+        <div style={{marginBottom:16}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <span style={{color:"#818cf8",fontSize:12,fontWeight:700}}>{sessionPct}%</span>
+            <button onClick={() => { stopAudio(); setSessionPhase(null); }}
+              style={{background:"#ef444420",border:"1px solid #ef444440",borderRadius:8,color:"#ef4444",fontSize:11,fontWeight:600,cursor:"pointer",padding:"5px 12px"}}>✕ end session</button>
+          </div>
+          <div style={{height:5,background:"#1a1a2e",borderRadius:3,overflow:"hidden"}}>
+            <div style={{width:sessionPct+"%",height:"100%",background:"linear-gradient(90deg,#4338ca,#818cf8)",borderRadius:3,transition:"width 0.4s ease"}} />
+          </div>
+        </div>
+      )}
 
       {/* Tier Sort phase */}
       {sessionPhase === "tier" && (

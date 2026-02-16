@@ -5,7 +5,8 @@ import { getPlacementPair, getRefinementPair } from '../hooks/useRanking';
 
 function ClassicMode({ songs, standings, compMap, compCount, ranking, submitComparison, onRefresh, showToast, picking, setPicking, savedPair, setSavedPair, stopAudio, undoLast, undoing, comparisons }) {
   const [winnerSide, setWinnerSide] = useState(null); // "left" | "right" | null
-  const pairKeyRef = useRef(null);
+  const [fading, setFading] = useState(false); // true = container faded out for pair swap
+  const displayedPairRef = useRef(null);
 
   const computedPair = useMemo(() => {
     const hasUnranked = songs.some(s => (compCount[s.id] || 0) < 3);
@@ -22,12 +23,11 @@ function ClassicMode({ songs, standings, compMap, compCount, ranking, submitComp
     return pair;
   })();
 
-  // Track pair key for entrance animation
-  const newPairKey = currentPair ? currentPair[0].id + "|" + currentPair[1].id : null;
-  if (newPairKey !== pairKeyRef.current) {
-    pairKeyRef.current = newPairKey;
-    if (winnerSide) setWinnerSide(null);
+  // Freeze displayed pair during pick transition — prevents flash from intermediate renders
+  if (!picking) {
+    displayedPairRef.current = currentPair;
   }
+  const displayedPair = displayedPairRef.current;
 
   useEffect(() => {
     if (currentPair && (!savedPair || currentPair[0]?.id !== savedPair[0]?.id || currentPair[1]?.id !== savedPair[1]?.id)) {
@@ -40,11 +40,17 @@ function ClassicMode({ songs, standings, compMap, compCount, ranking, submitComp
     setPicking(true);
     stopAudio();
     setWinnerSide(side);
-    await new Promise(r => setTimeout(r, 350));
-    await submitComparison(winnerId, loserId);
-    setSavedPair(null);
+    await new Promise(r => setTimeout(r, 350)); // win/lose animations
+    // Fade out container while animations still active (cards already at opacity 0 from forwards fill)
+    setFading(true);
+    await new Promise(r => setTimeout(r, 180)); // wait for container to reach opacity 0
+    // Now safe to clear animations — container is invisible
     setWinnerSide(null);
-    await onRefresh();
+    await Promise.all([
+      submitComparison(winnerId, loserId).then(() => onRefresh()),
+    ]);
+    setSavedPair(null);
+    setFading(false);
     setPicking(false);
   };
 
@@ -53,9 +59,7 @@ function ClassicMode({ songs, standings, compMap, compCount, ranking, submitComp
     const isLoser = winnerSide && winnerSide !== side;
     return (
       <div key={song.id} style={{
-        animation: !winnerSide ? "cardEntrance 0.25s ease-out both" : undefined,
-        animationDelay: side === "right" ? "0.08s" : "0s",
-        ...(isWinner ? {animation:"winPulse 0.4s ease-out",borderRadius:16} : {}),
+        ...(isWinner ? {animation:"winPulse 0.35s ease-out forwards",borderRadius:16} : {}),
         ...(isLoser ? {animation:"loseShrink 0.35s ease-out forwards"} : {}),
       }}>
         <div style={{background:"#14142a",border: isWinner ? "1px solid #22c55e" : "1px solid #2a2a45",borderRadius:16,padding:20,transition:"border-color 0.2s ease"}}>
@@ -82,18 +86,20 @@ function ClassicMode({ songs, standings, compMap, compCount, ranking, submitComp
       <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginBottom:12}}>
         {lastComp && <button onClick={undoLast} disabled={undoing} style={{background:"none",border:"1px solid #2a2a45",borderRadius:8,padding:"8px 16px",color:"#8a8aa0",fontSize:12,cursor:undoing?"default":"pointer"}}>{undoing?"...":"undo"}</button>}
       </div>
-      {currentPair ? (
-        <div key={pairKeyRef.current} style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:12,alignItems:"center"}}>
-          {renderCard(currentPair[0], ()=>pick(currentPair[0].id, currentPair[1].id, "left"), "left")}
-          <div style={{textAlign:"center"}}><span style={{fontSize:24,color:"#f59e0b"}}>vs</span></div>
-          {renderCard(currentPair[1], ()=>pick(currentPair[1].id, currentPair[0].id, "right"), "right")}
-        </div>
-      ) : (
-        <div style={{textAlign:"center",padding:60}}>
-          <div style={{fontSize:36,marginBottom:12}}>✓</div>
-          <p style={{color:"#22c55e",fontSize:16}}>All pairs compared!</p>
-        </div>
-      )}
+      <div style={{opacity: fading ? 0 : 1, transition:"opacity 0.15s ease-out"}}>
+        {displayedPair ? (
+          <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:12,alignItems:"center"}}>
+            {renderCard(displayedPair[0], ()=>pick(displayedPair[0].id, displayedPair[1].id, "left"), "left")}
+            <div style={{textAlign:"center"}}><span style={{fontSize:24,color:"#f59e0b"}}>vs</span></div>
+            {renderCard(displayedPair[1], ()=>pick(displayedPair[1].id, displayedPair[0].id, "right"), "right")}
+          </div>
+        ) : (
+          <div style={{textAlign:"center",padding:60}}>
+            <div style={{fontSize:36,marginBottom:12}}>✓</div>
+            <p style={{color:"#22c55e",fontSize:16}}>All pairs compared!</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

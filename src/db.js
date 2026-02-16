@@ -512,8 +512,8 @@ function updateUserEmail(id, email) {
   return getDb().prepare("UPDATE users SET email = ?, email_verified = 0 WHERE id = ?").run(email, id);
 }
 
-function setEmailVerified(id) {
-  return getDb().prepare("UPDATE users SET email_verified = 1 WHERE id = ?").run(id);
+function setEmailVerified(id, verified = 1) {
+  return getDb().prepare("UPDATE users SET email_verified = ? WHERE id = ?").run(verified ? 1 : 0, id);
 }
 
 function getUserByEmail(email) {
@@ -552,9 +552,9 @@ module.exports = {
   getAllUsersWithStats, updateUserUsername, updateUserPassword, deleteUser,
   updateUserEmail, setEmailVerified, getUserByEmail,
   createEmailToken, getEmailToken, markTokenUsed, cleanExpiredTokens, getEmailHistory,
-  getSongs, getSongById, insertSong, updateSong, deleteSong, batchUpdateGenre, rowToSong,
+  getSongs, getSongById, insertSong, updateSong, deleteSong, batchUpdateGenre,
   getComparisons, insertComparison, deleteLastComparison, deleteAllComparisons,
-  getGenres, addGenre, deleteGenre, renameGenre, setGenres,
+  getGenres, addGenre, deleteGenre, renameGenre,
   getPlaylists, insertPlaylist, updatePlaylist, deletePlaylist,
   getListenTimes, updateListenTimes, deleteListenTimes,
   getSession, setSession, destroySession, cleanExpiredSessions,
