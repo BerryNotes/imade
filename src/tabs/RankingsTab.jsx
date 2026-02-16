@@ -128,27 +128,9 @@ function RankingsTab({ songs, comparisons, listenTimes, onRefresh, showToast, la
 
     setSaving(true);
 
-    const movedUp = dropIdx < dragCurrentIdx;
-    const passedStart = movedUp ? dropIdx : dragCurrentIdx + 1;
-    const passedEnd = movedUp ? dragCurrentIdx : dropIdx;
-    const passedSongs = filtered.slice(passedStart, passedEnd).filter(s => s.id !== dragId);
-
-    const nudge = movedUp ? -3 : 3;
-    const updates = [];
-    for (const ps of passedSongs) {
-      const newElo = Math.max(0, Math.min(1000, ps.elo + nudge));
-      if (newElo !== ps.elo) {
-        const fd = new FormData();
-        fd.append("baseElo", String(newElo));
-        updates.push(api.put("/api/songs/" + ps.id, fd));
-      }
-    }
-
     const fd = new FormData();
     fd.append("baseElo", String(targetElo));
-    updates.push(api.put("/api/songs/" + dragId, fd));
-
-    await Promise.all(updates);
+    await api.put("/api/songs/" + dragId, fd);
     await onRefresh();
     setSaving(false);
     handleDragEnd();

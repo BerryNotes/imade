@@ -266,7 +266,7 @@ function App() {
     if (!song) return;
 
     const last = lastTimeUpdateRef.current;
-    if (last.src === srcKey && audio.currentTime > last.time) {
+    if (last.src === srcKey && audio.currentTime > last.time && tab !== "battle") {
       const delta = Math.min(audio.currentTime - last.time, 2);
       if (delta > 0.1) {
         listenTimesRef.current = { ...listenTimesRef.current, [song.id]: (listenTimesRef.current[song.id] || 0) + delta };
