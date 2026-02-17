@@ -1060,6 +1060,8 @@ const ADMIN_DIR = path.join(__dirname, "admin");
 // Admin panel — local only (Electron or shared mode)
 if (IMADE_MODE === "electron" || SHARED_MODE) {
   app.use("/admin", auth, requireAdmin, express.static(ADMIN_DIR));
+} else {
+  app.use("/admin", (req, res) => res.status(404).send("Not found"));
 }
 
 // ---- VISUALIZER GRID (standalone screenshot tool) ----
