@@ -102,7 +102,7 @@ function useRanking(songs, comparisons, listenTimes) {
         listenAdj: 0,
       }));
 
-    const standings = applyListenTimeAdj(rawStandings, listenTimes)
+    const standings = rawStandings
       .sort((a, b) => b.elo - a.elo);
 
     return { standings, compMap, compPairCount, compCount, unrankedCount, rankedCount: songs.length - unrankedCount, phase, placementPct, eloSnapshots, finalElo };

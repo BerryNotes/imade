@@ -669,14 +669,13 @@ app.get("/api/rankings", auth, (req, res) => {
   const songs = db.getSongs(userId);
   const comps = db.getComparisons(userId);
   const elo = computeElo(songs, comps);
-  const listenTimes = db.getListenTimes(userId);
   const totalPairs = (songs.length * (songs.length - 1)) / 2;
-  const ranked = applyListenTimeAdj(songs
+  const ranked = songs
     .map((s) => ({
       ...s, elo: Math.round(s.baseElo > 0 ? s.baseElo : (elo[s.id] || 500)),
       wins: comps.filter((c) => c.winner === s.id).length,
       losses: comps.filter((c) => (c.songA === s.id || c.songB === s.id) && c.winner !== s.id).length,
-    })), listenTimes)
+    }))
     .sort((a, b) => b.elo - a.elo);
   res.json({ rankings: ranked, totalComparisons: comps.length, totalPairs, progress: totalPairs > 0 ? comps.length / totalPairs : 0 });
 });
@@ -691,9 +690,8 @@ app.get("/api/export/m3u", auth, (req, res) => {
   const limit = parseInt(req.query.limit, 10) || 0;
 
   const elo = computeElo(songs, comps);
-  const listenTimes = db.getListenTimes(userId);
-  let ranked = applyListenTimeAdj(songs
-    .map(s => ({ ...s, elo: Math.round(s.baseElo > 0 ? s.baseElo : (elo[s.id] || 500)) })), listenTimes)
+  let ranked = songs
+    .map(s => ({ ...s, elo: Math.round(s.baseElo > 0 ? s.baseElo : (elo[s.id] || 500)) }))
     .sort((a, b) => b.elo - a.elo);
 
   if (genre) ranked = ranked.filter(s => s.genre === genre);
@@ -994,9 +992,8 @@ app.get("/api/admin/users/:id/songs", requireAdmin, (req, res) => {
   const songs = db.getSongs(id);
   const comps = db.getComparisons(id);
   const elo = computeElo(songs, comps);
-  const listenTimes = db.getListenTimes(id);
-  const ranked = applyListenTimeAdj(songs
-    .map(s => ({ ...s, elo: Math.round(s.baseElo > 0 ? s.baseElo : (elo[s.id] || 500)) })), listenTimes)
+  const ranked = songs
+    .map(s => ({ ...s, elo: Math.round(s.baseElo > 0 ? s.baseElo : (elo[s.id] || 500)) }))
     .sort((a, b) => b.elo - a.elo);
   res.json(ranked);
 });
