@@ -361,9 +361,9 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
 
   // === Win Rate Trends ===
   const winRateTrends = useMemo(() => {
-    if (!stats || standings.length === 0) return null;
+    if (!stats || standings.length < 8) return null;
     const rankedWithDates = standings.filter(s => s.date && s.totalComparisons > 0);
-    if (rankedWithDates.length === 0) return null;
+    if (rankedWithDates.length < 8) return null;
 
     // Group by quarter
     const quarters = {};

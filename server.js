@@ -70,6 +70,12 @@ app.use("/api/admin", (req, res, next) => {
   // Skip auth for preflight and Bearer-token requests (handled by requireAdmin)
   if (req.method === "OPTIONS") return next();
   if (req.headers.authorization) return next();
+  // In local/shared mode, force admin (user_id=1) for admin routes
+  // regardless of which user is logged into the main app
+  if (IMADE_MODE === "electron" || SHARED_MODE) {
+    req.session.userId = 1;
+    return next();
+  }
   auth(req, res, next);
 });
 
@@ -1056,7 +1062,7 @@ app.get("/api/admin/activity", requireAdmin, (req, res) => {
 const ADMIN_DIR = path.join(__dirname, "admin");
 // Admin panel — local only (Electron or shared mode)
 if (IMADE_MODE === "electron" || SHARED_MODE) {
-  app.use("/admin", auth, requireAdmin, express.static(ADMIN_DIR));
+  app.use("/admin", express.static(ADMIN_DIR));
 } else {
   app.use("/admin", (req, res) => res.status(404).send("Not found"));
 }
