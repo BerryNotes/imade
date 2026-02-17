@@ -1057,26 +1057,10 @@ app.get("/api/admin/activity", requireAdmin, (req, res) => {
 // ---- ADMIN PANEL (separate static site) ----
 
 const ADMIN_DIR = path.join(__dirname, "admin");
-// Inject auto-token script when serving admin locally (skips login screen)
-app.get("/admin", auth, requireAdmin, (req, res, next) => {
-  if (req.session && req.session.userId === 1) {
-    const html = fs.readFileSync(path.join(ADMIN_DIR, "index.html"), "utf-8");
-    const injected = html.replace("</head>",
-      `<script>window.__ADMIN_TOKEN__="${ADMIN_TOKEN}";</script></head>`);
-    return res.type("html").send(injected);
-  }
-  next();
-});
-app.get("/admin/", auth, requireAdmin, (req, res, next) => {
-  if (req.session && req.session.userId === 1) {
-    const html = fs.readFileSync(path.join(ADMIN_DIR, "index.html"), "utf-8");
-    const injected = html.replace("</head>",
-      `<script>window.__ADMIN_TOKEN__="${ADMIN_TOKEN}";</script></head>`);
-    return res.type("html").send(injected);
-  }
-  next();
-});
-app.use("/admin", auth, requireAdmin, express.static(ADMIN_DIR));
+// Admin panel — local only (Electron or shared mode)
+if (IMADE_MODE === "electron" || SHARED_MODE) {
+  app.use("/admin", auth, requireAdmin, express.static(ADMIN_DIR));
+}
 
 // ---- VISUALIZER GRID (standalone screenshot tool) ----
 app.get("/visualizer-grid", (req, res) => res.sendFile(path.join(__dirname, "visualizer-grid.html")));
