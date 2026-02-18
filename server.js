@@ -53,6 +53,14 @@ app.use((req, res, next) => {
 });
 app.use(createSessionMiddleware());
 
+// Track last-seen time for online status
+app.use((req, res, next) => {
+  if (req.session && req.session.userId) {
+    db.touchUserActivity(req.session.userId);
+  }
+  next();
+});
+
 // CORS for remote admin site
 const ADMIN_ORIGINS = ["https://admin.imade.one", "http://localhost:3000"];
 app.use("/api/admin", (req, res, next) => {

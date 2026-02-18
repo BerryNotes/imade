@@ -422,14 +422,18 @@ function cleanExpiredSessions() {
   getDb().prepare("DELETE FROM sessions WHERE expired < ?").run(Date.now());
 }
 
-function getOnlineUserIds() {
-  const rows = getDb().prepare("SELECT sess FROM sessions WHERE expired > ?").all(Date.now());
+// In-memory last-seen tracker (updated by middleware on every authenticated request)
+const lastSeen = new Map(); // userId -> timestamp
+
+function touchUserActivity(userId) {
+  lastSeen.set(userId, Date.now());
+}
+
+function getOnlineUserIds(minutesAgo = 5) {
+  const cutoff = Date.now() - minutesAgo * 60 * 1000;
   const ids = new Set();
-  for (const row of rows) {
-    try {
-      const sess = JSON.parse(row.sess);
-      if (sess.userId) ids.add(sess.userId);
-    } catch {}
+  for (const [uid, ts] of lastSeen) {
+    if (ts > cutoff) ids.add(uid);
   }
   return ids;
 }
@@ -570,7 +574,8 @@ module.exports = {
   getGenres, addGenre, deleteGenre, renameGenre,
   getPlaylists, insertPlaylist, updatePlaylist, deletePlaylist,
   getListenTimes, updateListenTimes, deleteListenTimes,
-  getSession, setSession, destroySession, cleanExpiredSessions, getOnlineUserIds,
+  getSession, setSession, destroySession, cleanExpiredSessions,
+  touchUserActivity, getOnlineUserIds,
   bulkReplace,
   logActivity, getActivityLog, getActivityLogCount,
 };
