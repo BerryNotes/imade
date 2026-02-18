@@ -138,17 +138,8 @@ function sendPasswordResetEmail(email, token) {
 
 function sendCheckinEmail(bccList) {
   const html = emailTemplate("How's your music coming along?", `
-    <!-- Accent icon -->
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-      <tr><td align="center" style="padding:0 0 20px;">
-        <div style="display:inline-block;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#4338ca,#818cf8);line-height:56px;text-align:center;font-size:28px;">
-          &#127925;
-        </div>
-      </td></tr>
-    </table>
-
     <p style="color:#e2e8f0;font-size:16px;margin:0 0 12px;line-height:1.7;text-align:center;font-weight:600;">
-      We miss your music!
+      Your rankings are waiting
     </p>
     <p style="color:#b0b0c8;font-size:15px;margin:0 0 24px;line-height:1.7;text-align:center;">
       Whether you've been uploading new tracks or fine-tuning your rankings, iMade is here to help you discover your best work.
