@@ -568,9 +568,10 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
       .slice(0, 10);
 
     // Rising Stars — biggest positive Elo shift, >=5 comparisons, skip "Your Best"
+    const avgElo = ranked.reduce((sum, s) => sum + s.elo, 0) / ranked.length;
     const risingStars = ranked
       .filter(s => s.totalComparisons >= 5 && !bestIds.has(s.id))
-      .map(s => ({ ...s, shift: s.elo - 500 }))
+      .map(s => ({ ...s, shift: s.elo - avgElo }))
       .sort((a, b) => b.shift - a.shift)
       .slice(0, 10);
 
