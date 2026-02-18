@@ -923,7 +923,10 @@ app.post("/api/admin/verify", (req, res) => {
 });
 
 app.get("/api/admin/users", requireAdmin, (req, res) => {
-  res.json(db.getAllUsersWithStats());
+  const users = db.getAllUsersWithStats();
+  const onlineIds = db.getOnlineUserIds();
+  for (const u of users) u.online = onlineIds.has(u.id);
+  res.json(users);
 });
 
 app.post("/api/admin/users", requireAdmin, async (req, res) => {
@@ -1057,12 +1060,56 @@ app.get("/api/admin/activity", requireAdmin, (req, res) => {
   res.json({ logs, total });
 });
 
+// ---- ADMIN EMAIL ACTIONS ----
+
+app.post("/api/admin/email/checkin", requireAdmin, async (req, res) => {
+  const { userIds } = req.body;
+  if (!Array.isArray(userIds) || userIds.length === 0) return res.status(400).json({ error: "userIds array required" });
+  const emails = [];
+  const skipped = [];
+  for (const id of userIds) {
+    const user = db.getUserById(id);
+    if (user && user.email) emails.push(user.email);
+    else skipped.push(id);
+  }
+  if (emails.length === 0) return res.status(400).json({ error: "No users with email addresses" });
+  try {
+    await email.sendCheckinEmail(emails);
+    console.log(`[ADMIN EMAIL] Check-in sent to ${emails.length} users, skipped ${skipped.length}`);
+    res.json({ sent: emails.length, skipped: skipped.length });
+  } catch (e) {
+    console.error("[ADMIN EMAIL] Check-in failed:", e);
+    res.status(500).json({ error: e.message || "Failed to send emails" });
+  }
+});
+
+app.post("/api/admin/email/unranked", requireAdmin, async (req, res) => {
+  const { userIds } = req.body;
+  if (!Array.isArray(userIds) || userIds.length === 0) return res.status(400).json({ error: "userIds array required" });
+  const emails = [];
+  const skipped = [];
+  for (const id of userIds) {
+    const user = db.getUserById(id);
+    if (user && user.email) emails.push(user.email);
+    else skipped.push(id);
+  }
+  if (emails.length === 0) return res.status(400).json({ error: "No users with email addresses" });
+  try {
+    await email.sendUnrankedNotice(emails);
+    console.log(`[ADMIN EMAIL] Unranked notice sent to ${emails.length} users, skipped ${skipped.length}`);
+    res.json({ sent: emails.length, skipped: skipped.length });
+  } catch (e) {
+    console.error("[ADMIN EMAIL] Unranked notice failed:", e);
+    res.status(500).json({ error: e.message || "Failed to send emails" });
+  }
+});
+
 // ---- ADMIN PANEL (separate static site) ----
 
 const ADMIN_DIR = path.join(__dirname, "admin");
 // Admin panel — local only (Electron or shared mode)
 if (IMADE_MODE === "electron" || SHARED_MODE) {
-  app.use("/admin", express.static(ADMIN_DIR));
+  app.use("/admin", express.static(ADMIN_DIR, { etag: false, lastModified: false, setHeaders: (res) => res.setHeader("Cache-Control", "no-cache, no-store") }));
 } else {
   app.use("/admin", (req, res) => res.status(404).send("Not found"));
 }

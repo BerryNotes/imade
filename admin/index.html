@@ -50,19 +50,15 @@
     tr.user-row { cursor: pointer; transition: background 0.15s; }
     tr.user-row:hover { background: #12121f; }
     tr.user-row.expanded { background: #1a1a2e; }
+    .online-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #374151; margin-right: 8px; vertical-align: middle; }
+    .online-dot.online { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.5); }
     .badge { display: inline-block; margin-left: 6px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #818cf8; background: rgba(129,140,248,0.12); padding: 2px 6px; border-radius: 4px; }
     .badge-trial { color: #f59e0b; background: rgba(245,158,11,0.12); }
     .badge-full { color: #22c55e; background: rgba(34,197,94,0.12); }
-    .badge-verified { color: #22c55e; background: rgba(34,197,94,0.12); }
-    .badge-unverified { color: #ef4444; background: rgba(239,68,68,0.12); }
     .plan-toggle { border: none; padding: 4px 10px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.04em; transition: opacity 0.15s; }
     .plan-toggle:hover { opacity: 0.8; }
     .plan-toggle-trial { background: rgba(245,158,11,0.15); color: #f59e0b; }
     .plan-toggle-full { background: rgba(34,197,94,0.15); color: #22c55e; }
-    .role-toggle { border: none; padding: 4px 10px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.04em; transition: opacity 0.15s; }
-    .role-toggle:hover { opacity: 0.8; }
-    .role-toggle-user { background: rgba(107,114,128,0.15); color: #6b7280; }
-    .role-toggle-admin { background: rgba(129,140,248,0.15); color: #818cf8; }
     .actions { display: flex; gap: 6px; }
     .btn { border: none; padding: 5px 12px; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
     .btn:hover { opacity: 0.8; }
@@ -143,15 +139,27 @@
     .action-badge-register { color: #818cf8; background: rgba(129,140,248,0.12); }
     .action-badge-song_create, .action-badge-song_bulk_upload { color: #f59e0b; background: rgba(245,158,11,0.12); }
     .action-badge-song_delete { color: #ef4444; background: rgba(239,68,68,0.12); }
-    .action-badge-username_change { color: #818cf8; background: rgba(129,140,248,0.12); }
-    .action-badge-password_reset, .action-badge-password_reset_requested { color: #f59e0b; background: rgba(245,158,11,0.12); }
-    .action-badge-email_verified { color: #22c55e; background: rgba(34,197,94,0.12); }
     .activity-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
     .activity-filter { background: #0c0a1a; color: #e2e2f0; border: 1px solid #2a2a40; padding: 7px 10px; border-radius: 6px; font-size: 12px; outline: none; }
     .activity-filter:focus { border-color: #818cf8; }
     .btn-load-more { display: block; width: 100%; background: none; border: 1px solid #2a2a40; color: #6b7280; padding: 10px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; margin-top: 12px; transition: all 0.15s; }
     .btn-load-more:hover { border-color: #818cf8; color: #818cf8; }
 
+    /* Email mode */
+    .btn-email-users { background: none; border: 1px solid #2a2a40; color: #6b7280; padding: 8px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+    .btn-email-users:hover { border-color: #22c55e; color: #22c55e; }
+    .btn-email-users.active { border-color: #22c55e; color: #22c55e; background: rgba(34,197,94,0.1); }
+    .sortable-th:hover { color: #818cf8; }
+    .email-checkbox { width: 16px; height: 16px; accent-color: #22c55e; cursor: pointer; }
+    .email-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #12122a; border-top: 1px solid #22c55e; padding: 12px 24px; display: flex; align-items: center; gap: 10px; z-index: 101; transform: translateY(100%); transition: transform 0.2s ease; }
+    .email-bar.visible { transform: translateY(0); }
+    .email-bar .email-msg { font-size: 12px; color: #22c55e; font-weight: 600; margin-right: auto; }
+    .email-bar .btn-email { border: none; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; transition: opacity 0.15s; }
+    .email-bar .btn-email:hover { opacity: 0.85; }
+    .email-bar .btn-email:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-checkin { background: rgba(129,140,248,0.15); color: #818cf8; }
+    .btn-unranked { background: rgba(245,158,11,0.15); color: #f59e0b; }
+    .btn-mailto { background: rgba(34,197,94,0.15); color: #22c55e; }
     /* Environment switcher */
     .env-switcher { display: inline-flex; align-items: center; gap: 2px; margin-left: 10px; vertical-align: middle; background: #0c0a1a; border: 1px solid #1e1e35; border-radius: 6px; padding: 2px; }
     .env-btn { border: none; padding: 4px 10px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.04em; transition: all 0.15s; background: transparent; color: #6b7280; }
@@ -163,39 +171,22 @@
 </head>
 <body>
 
-  <!-- Login Screen -->
-  <div class="login-screen" id="login-screen">
-    <div class="login-box">
-      <h1>iMade Admin</h1>
-      <p>Connect to your iMade server.</p>
-      <div class="field">
-        <label>Server URL</label>
-        <input id="login-url" value="http://localhost:3000" placeholder="http://localhost:3000" />
-      </div>
-      <div class="field">
-        <label>Admin Token</label>
-        <input id="login-token" type="password" placeholder="Paste token from server console" />
-      </div>
-      <button class="login-btn" id="login-btn">Connect</button>
-      <div class="login-error" id="login-error"></div>
-    </div>
-  </div>
+  <div id="login-screen" style="display:none"></div>
 
   <!-- Dashboard -->
   <div class="dashboard" id="dashboard">
     <div class="header">
       <div>
         <h1>iMade Admin <span id="version-badge" style="font-size:11px;font-weight:600;color:#818cf8;background:rgba(129,140,248,0.12);padding:2px 8px;border-radius:4px;margin-left:8px;vertical-align:middle;display:none"></span>
-          <span class="env-switcher" id="env-switcher">
-            <button class="env-btn" id="env-local" data-env="local">Local</button>
-            <button class="env-btn" id="env-prod" data-env="prod">Prod</button>
-          </span>
         </h1>
         <div class="stats" id="stats"></div>
       </div>
       <div class="right">
+        <div class="env-switcher">
+          <button class="env-btn active-local" id="env-local">Local</button>
+          <button class="env-btn" id="env-prod">Prod</button>
+        </div>
         <span class="server-url" id="server-url"></span>
-        <button class="disconnect" id="disconnect-btn">Disconnect</button>
       </div>
     </div>
 
@@ -213,6 +204,7 @@
           <input type="password" name="fake-pw" tabindex="-1" style="position:absolute;opacity:0;width:0;height:0;padding:0;border:0;pointer-events:none" />
           <input class="search-input" id="user-search" type="search" placeholder="Search users..." autocomplete="off" />
           <button class="btn-refresh" id="refresh-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
+          <button class="btn-email-users" id="email-users-btn">Email Users</button>
           <button class="btn-add" id="add-user-btn">+ Add User</button>
         </div>
         <div class="add-form-wrap" id="add-form-wrap">
@@ -227,16 +219,18 @@
         </div>
         <div class="table-wrap">
           <table>
-            <thead>
+            <thead id="user-thead">
               <tr>
                 <th>ID</th>
                 <th>Username</th>
                 <th>Plan</th>
-                <th>Role</th>
+                <th>Verified</th>
                 <th class="num">Songs</th>
                 <th class="num">Comparisons</th>
                 <th class="num">Playlists</th>
+                <th>Last Active</th>
                 <th>Joined</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody id="user-table"></tbody>
@@ -260,6 +254,13 @@
       <button class="btn-bar-cancel" id="bar-cancel-btn">Cancel</button>
       <button class="btn-bar-save" id="bar-save-btn">Save Changes</button>
     </div>
+
+    <div class="email-bar" id="email-bar">
+      <span class="email-msg" id="email-msg"></span>
+      <button class="btn-email btn-checkin" id="email-checkin" disabled>Check-in</button>
+      <button class="btn-email btn-unranked" id="email-unranked" disabled>Unranked Notice</button>
+      <button class="btn-email btn-mailto" id="email-mailto" disabled>Open in Mail Client</button>
+    </div>
   </div>
 
   <script>
@@ -267,82 +268,23 @@
     let TOKEN = '';
     let users = [];
     let expandedUser = null;
+    let editingUser = null;
+    let confirmingDelete = null;
     let songCache = {};
-    let emailCache = {};
     let pendingChanges = {}; // { userId: { plan?, role? } }
     let searchQuery = '';
     let viewingUser = null; // user id for detail page
     let detailSongSearch = '';
+    let selectedUsers = new Set(); // user ids selected for email
+    let emailMode = false;
+    let sortBy = 'id'; // 'id' or 'last_active'
 
     // Environment config
-    const ENVIRONMENTS = {
-      local: { url: 'http://localhost:3000', label: 'Local' },
-      prod: { url: 'https://app.imade.one', label: 'Prod' },
+    const ENVS = {
+      local: { url: location.origin, token: '__session__' },
+      prod: { url: 'https://app.imade.one', token: '' },
     };
-    let currentEnv = null;
-
-    function detectEnv(url) {
-      for (const [key, env] of Object.entries(ENVIRONMENTS)) {
-        if (url === env.url || url === env.url + '/') return key;
-      }
-      return null;
-    }
-
-    function updateEnvUI() {
-      const localBtn = document.getElementById('env-local');
-      const prodBtn = document.getElementById('env-prod');
-      const env = detectEnv(API);
-      localBtn.className = 'env-btn' + (env === 'local' ? ' active-local' : '');
-      prodBtn.className = 'env-btn' + (env === 'prod' ? ' active-prod' : '');
-      currentEnv = env;
-    }
-
-    async function switchEnv(envKey) {
-      if (currentEnv === envKey) return;
-      const env = ENVIRONMENTS[envKey];
-      // Local admin must be accessed directly (HTTPS→HTTP blocked by browsers)
-      if (envKey === 'local' && location.origin !== env.url) {
-        window.location.href = env.url + '/admin/';
-        return;
-      }
-      const saved = localStorage.getItem('imade_admin_tokens');
-      let tokens = {};
-      try { tokens = JSON.parse(saved) || {}; } catch {}
-      let token = tokens[envKey];
-      if (envKey === 'local') {
-        token = '__session__';
-      }
-      if (!token) {
-        const t = prompt(`Enter admin token for ${env.label} (${env.url}):`);
-        if (!t) return;
-        try {
-          const r = await fetch(env.url + '/api/admin/verify', {
-            method: 'POST',
-            headers: { 'Authorization': 'Bearer ' + t },
-          });
-          if (!r.ok) { alert('Invalid token'); return; }
-          tokens[envKey] = t;
-          localStorage.setItem('imade_admin_tokens', JSON.stringify(tokens));
-          token = t;
-        } catch (e) { alert('Connection failed: ' + e.message); return; }
-      }
-      API = env.url;
-      TOKEN = token;
-      sessionStorage.setItem('imade_admin', JSON.stringify({ url: API, token: TOKEN }));
-      users = []; songCache = {}; emailCache = {}; expandedUser = null; editingUser = null;
-      confirmingDelete = null; pendingChanges = {}; viewingUser = null;
-      activityInitialized = false; activityLogs = []; activityOffset = 0; activityFilter = ''; activitySearch = '';
-      document.getElementById('server-url').textContent = API;
-      updateEnvUI();
-      showDashboard();
-      loadUsers();
-      // Reload activity if that tab is active
-      const activeTab = document.querySelector('.tab-btn.active');
-      if (activeTab && activeTab.dataset.tab === 'activity') initActivity();
-    }
-
-    document.getElementById('env-local').addEventListener('click', () => switchEnv('local'));
-    document.getElementById('env-prod').addEventListener('click', () => switchEnv('prod'));
+    let currentEnv = 'local';
 
     // --- Tab switching ---
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -355,97 +297,52 @@
       });
     });
 
-    // Auto-connect when served locally (session auth or injected token)
-    const isLocal = location.pathname.startsWith('/admin');
-    if (isLocal) {
-      API = location.origin;
-      TOKEN = window.__ADMIN_TOKEN__ || '__session__';
-      showDashboard();
+    // Environment switcher
+    function switchEnv(env) {
+      currentEnv = env;
+      API = ENVS[env].url;
+      TOKEN = ENVS[env].token;
+      document.getElementById('server-url').textContent = API;
+      // Update button styles
+      document.getElementById('env-local').className = 'env-btn' + (env === 'local' ? ' active-local' : '');
+      document.getElementById('env-prod').className = 'env-btn' + (env === 'prod' ? ' active-prod' : '');
+      // If prod needs a token and we don't have one, prompt
+      if (env === 'prod' && !ENVS.prod.token) {
+        const saved = sessionStorage.getItem('imade_admin_prod_token');
+        if (saved) {
+          ENVS.prod.token = saved;
+          TOKEN = saved;
+        } else {
+          const t = prompt('Enter admin token for prod:');
+          if (!t) { switchEnv('local'); return; }
+          ENVS.prod.token = t;
+          TOKEN = t;
+          sessionStorage.setItem('imade_admin_prod_token', t);
+        }
+      }
+      // Reset state
+      songCache = {};
+      pendingChanges = {};
+      selectedUsers.clear();
+      emailMode = false;
+      activityInitialized = false;
+      activityLogs = [];
       loadUsers();
-    } else {
-      // Restore saved session (remote access)
-      let restored = false;
-      const saved = sessionStorage.getItem('imade_admin');
-      if (saved) {
-        try {
-          const s = JSON.parse(saved);
-          API = s.url; TOKEN = s.token;
-          restored = true;
-        } catch {}
-      }
-      // Fall back to localStorage tokens (persists across sessions)
-      if (!restored) {
-        try {
-          const tokens = JSON.parse(localStorage.getItem('imade_admin_tokens')) || {};
-          if (tokens.prod) {
-            API = ENVIRONMENTS.prod.url; TOKEN = tokens.prod;
-            restored = true;
-          }
-        } catch {}
-      }
-      if (restored) {
-        showDashboard();
-        loadUsers();
-      }
     }
 
-    // Login
-    document.getElementById('login-btn').addEventListener('click', async () => {
-      const url = document.getElementById('login-url').value.trim().replace(/\/+$/, '');
-      const token = document.getElementById('login-token').value.trim();
-      const errEl = document.getElementById('login-error');
-      const btn = document.getElementById('login-btn');
-      errEl.textContent = '';
-      if (!url || !token) { errEl.textContent = 'Both fields are required.'; return; }
+    document.getElementById('env-local').addEventListener('click', () => switchEnv('local'));
+    document.getElementById('env-prod').addEventListener('click', () => switchEnv('prod'));
 
-      btn.disabled = true;
-      btn.textContent = 'Connecting...';
-      try {
-        const r = await fetch(url + '/api/admin/verify', {
-          method: 'POST',
-          headers: { 'Authorization': 'Bearer ' + token },
-        });
-        if (!r.ok) throw new Error('Invalid token or server unreachable');
-        API = url; TOKEN = token;
-        sessionStorage.setItem('imade_admin', JSON.stringify({ url, token }));
-        showDashboard();
-        loadUsers();
-      } catch (e) {
-        errEl.textContent = e.message;
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Connect';
-      }
-    });
-
-    // Enter key on token field
-    document.getElementById('login-token').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') document.getElementById('login-btn').click();
-    });
-
-    // Disconnect
-    document.getElementById('disconnect-btn').addEventListener('click', () => {
-      sessionStorage.removeItem('imade_admin');
-      API = ''; TOKEN = '';
-      users = []; songCache = {}; emailCache = {}; expandedUser = null; editingUser = null; confirmingDelete = null;
-      document.getElementById('login-screen').style.display = 'flex';
-      document.getElementById('dashboard').style.display = 'none';
-    });
+    // Auto-connect to local server
+    API = location.origin;
+    TOKEN = '__session__';
+    showDashboard();
+    loadUsers();
 
     function showDashboard() {
       document.getElementById('login-screen').style.display = 'none';
       document.getElementById('dashboard').style.display = 'block';
       document.getElementById('server-url').textContent = API;
-      updateEnvUI();
-      // Save token for env switching
-      const env = detectEnv(API);
-      if (env && TOKEN && TOKEN !== '__session__') {
-        let tokens = {};
-        try { tokens = JSON.parse(localStorage.getItem('imade_admin_tokens')) || {}; } catch {}
-        tokens[env] = TOKEN;
-        localStorage.setItem('imade_admin_tokens', JSON.stringify(tokens));
-      }
-      // Fetch and display version
       apiFetch('/api/update-check').then(d => {
         if (d && d.current) {
           const badge = document.getElementById('version-badge');
@@ -458,7 +355,9 @@
     async function apiFetch(path, opts = {}) {
       const headers = { ...(opts.headers || {}) };
       if (TOKEN && TOKEN !== '__session__') headers['Authorization'] = 'Bearer ' + TOKEN;
-      const r = await fetch(API + path, { ...opts, headers, credentials: 'same-origin' });
+      const fetchOpts = { ...opts, headers };
+      if (currentEnv === 'local') fetchOpts.credentials = 'same-origin';
+      const r = await fetch(API + path, fetchOpts);
       if (r.status === 403) {
         sessionStorage.removeItem('imade_admin');
         location.reload();
@@ -478,7 +377,7 @@
         render();
       } catch (e) {
         document.getElementById('user-table').innerHTML =
-          `<tr><td colspan="9" class="error">${esc(e.message)}</td></tr>`;
+          `<tr><td colspan="10" class="error">${esc(e.message)}</td></tr>`;
       }
     }
 
@@ -493,42 +392,129 @@
       return new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
     }
 
+    function timeAgo(d) {
+      if (!d) return '\u2014';
+      const now = Date.now();
+      const t = new Date(d + (d.endsWith('Z') ? '' : 'Z')).getTime();
+      const sec = Math.floor((now - t) / 1000);
+      if (sec < 60) return 'just now';
+      const min = Math.floor(sec / 60);
+      if (min < 60) return min + 'm ago';
+      const hr = Math.floor(min / 60);
+      if (hr < 24) return hr + 'h ago';
+      const days = Math.floor(hr / 24);
+      if (days < 30) return days + 'd ago';
+      const months = Math.floor(days / 30);
+      if (months < 12) return months + 'mo ago';
+      return Math.floor(months / 12) + 'y ago';
+    }
+
+    function lastActiveColor(d) {
+      if (!d) return '#4b5563';
+      const days = (Date.now() - new Date(d + (d.endsWith('Z') ? '' : 'Z')).getTime()) / 86400000;
+      if (days < 1) return '#22c55e';
+      if (days < 7) return '#a3e635';
+      if (days < 30) return '#f59e0b';
+      return '#ef4444';
+    }
+
     function render() {
       const totalSongs = users.reduce((s, u) => s + u.song_count, 0);
       const totalComps = users.reduce((s, u) => s + u.comparison_count, 0);
-      document.getElementById('stats').textContent =
-        `${users.length} users \u00b7 ${totalSongs} songs \u00b7 ${totalComps} comparisons`;
+      const onlineCount = users.filter(u => u.online).length;
+      document.getElementById('stats').innerHTML =
+        `${users.length} users \u00b7 ${totalSongs} songs \u00b7 ${totalComps} comparisons \u00b7 <span style="color:#22c55e">${onlineCount} online</span>`;
+
+      // Update thead — swap ID for select-all checkbox in email mode
+      const thead = document.getElementById('user-thead');
+      const usersWithEmail = users.filter(u => !!u.email);
+      const allSelected = usersWithEmail.length > 0 && usersWithEmail.every(u => selectedUsers.has(u.id));
+      const someSelected = usersWithEmail.some(u => selectedUsers.has(u.id));
+      if (emailMode) {
+        thead.innerHTML = `<tr>
+          <th style="width:36px"><input type="checkbox" class="email-checkbox" id="email-select-all" title="Select all" ${allSelected ? 'checked' : ''} /></th>
+          <th>Username</th><th>Plan</th><th>Verified</th><th class="num">Songs</th><th class="num">Comparisons</th><th class="num">Playlists</th><th class="sortable-th" data-sort="last_active" style="cursor:pointer">Last Active ${sortBy === 'last_active' ? '\u25BC' : ''}</th><th>Joined</th><th>Actions</th>
+        </tr>`;
+        // Handle indeterminate state
+        const sa = document.getElementById('email-select-all');
+        if (sa) sa.indeterminate = someSelected && !allSelected;
+      } else {
+        thead.innerHTML = `<tr>
+          <th>ID</th><th>Username</th><th>Plan</th><th>Verified</th><th class="num">Songs</th><th class="num">Comparisons</th><th class="num">Playlists</th><th class="sortable-th" data-sort="last_active" style="cursor:pointer">Last Active ${sortBy === 'last_active' ? '\u25BC' : ''}</th><th>Joined</th><th>Actions</th>
+        </tr>`;
+      }
 
       const tbody = document.getElementById('user-table');
       let html = '';
 
       const q = searchQuery.toLowerCase().trim();
-      const filtered = q ? users.filter(u =>
+      let filtered = q ? users.filter(u =>
         u.username.toLowerCase().includes(q) ||
         String(u.id).includes(q) ||
         (u.plan || 'trial').includes(q) ||
-        (u.role || 'user').includes(q) ||
-        (u.email || '').toLowerCase().includes(q)
-      ) : users;
+        (u.role || 'user').includes(q)
+      ) : [...users];
+
+      if (sortBy === 'last_active') {
+        filtered.sort((a, b) => {
+          const ta = a.last_active ? new Date(a.last_active).getTime() : 0;
+          const tb = b.last_active ? new Date(b.last_active).getTime() : 0;
+          return tb - ta; // most recent first
+        });
+      }
 
       filtered.forEach((u, idx) => {
         const isExpanded = expandedUser === u.id;
+        const isEditing = editingUser === u.id;
+        const isConfirming = confirmingDelete === u.id;
+
         const pending = pendingChanges[u.id] || {};
         const plan = pending.plan !== undefined ? pending.plan : (u.plan || 'trial');
         const role = pending.role !== undefined ? pending.role : (u.role || 'user');
         const planChanged = pending.plan !== undefined;
         const roleChanged = pending.role !== undefined;
         const planClass = plan === 'full' ? 'plan-toggle-full' : 'plan-toggle-trial';
+        const hasEmail = !!u.email;
+        const firstCol = emailMode
+          ? `<td>${hasEmail ? `<input type="checkbox" class="email-checkbox" data-email-uid="${u.id}" ${selectedUsers.has(u.id) ? 'checked' : ''} />` : '<span style="color:#4b5563;font-size:10px" title="No email">--</span>'}</td>`
+          : `<td>${idx}</td>`;
+        const verified = u.email && u.email_verified;
         html += `<tr class="user-row ${isExpanded ? 'expanded' : ''}" data-expand="${u.id}">
-          <td>${idx}</td>
-          <td><strong>${esc(u.username)}</strong>${u.email_verified ? '<span class="badge badge-verified">verified</span>' : u.email ? '<span class="badge badge-unverified">unverified</span>' : ''}</td>
+          ${firstCol}
+          <td><span class="online-dot${u.online ? ' online' : ''}" title="${u.online ? 'Online' : 'Offline'}"></span><strong>${esc(u.username)}</strong></td>
           <td><button class="plan-toggle ${planClass}${planChanged ? ' toggle-changed' : ''}" data-toggle-plan="${u.id}" data-current-plan="${plan}">${plan === 'full' ? 'Full' : 'Trial'}</button></td>
-          <td>${u.id === 1 ? '<span class="role-toggle role-toggle-admin" style="cursor:default;opacity:0.5">Admin</span>' : `<button class="role-toggle ${role === 'admin' ? 'role-toggle-admin' : 'role-toggle-user'}${roleChanged ? ' toggle-changed' : ''}" data-toggle-role="${u.id}" data-current-role="${role}">${role === 'admin' ? 'Admin' : 'User'}</button>`}</td>
+          <td>${verified ? '<span style="color:#22c55e;font-size:11px;font-weight:600">Verified</span>' : (u.email ? '<span style="color:#f59e0b;font-size:11px">Unverified</span>' : '<span style="color:#4b5563;font-size:11px">\u2014</span>')}</td>
           <td class="num">${u.song_count}</td>
           <td class="num">${u.comparison_count}</td>
           <td class="num">${u.playlist_count}</td>
+          <td style="color:${lastActiveColor(u.last_active)};font-size:12px" title="${u.last_active ? new Date(u.last_active + 'Z').toLocaleString() : 'Never'}">${timeAgo(u.last_active)}</td>
           <td>${formatDate(u.created_at)}</td>
+          <td><div class="actions">
+            <button class="btn btn-edit" data-edit="${u.id}">Edit</button>
+            ${u.id !== 1 ? `<button class="btn btn-delete" data-confirm="${u.id}">Delete</button>` : ''}
+          </div></td>
         </tr>`;
+
+        if (isEditing) {
+          html += `<tr class="edit-row"><td colspan="10">
+            <form autocomplete="off" onsubmit="return false"><div class="edit-form">
+              <div class="field"><label>Username</label><input id="edit-username" value="${esc(u.username)}" autocomplete="off" /></div>
+              <div class="field"><label>Password</label><input id="edit-password" type="password" placeholder="Leave empty to keep" autocomplete="new-password" /></div>
+              <button type="button" class="btn btn-save" data-save="${u.id}">Save</button>
+              <button type="button" class="btn btn-cancel" data-cancel-edit>Cancel</button>
+            </div></form>
+          </td></tr>`;
+        }
+
+        if (isConfirming) {
+          html += `<tr class="confirm-row"><td colspan="10">
+            <div style="display:flex;align-items:center;gap:12px">
+              <span class="confirm-msg">Delete <strong>${esc(u.username)}</strong> and all their data? This cannot be undone.</span>
+              <button class="btn btn-delete" data-do-delete="${u.id}">Confirm Delete</button>
+              <button class="btn btn-cancel" data-cancel-delete>Cancel</button>
+            </div>
+          </td></tr>`;
+        }
 
       });
 
@@ -549,17 +535,104 @@
       } else {
         bar.classList.remove('visible');
       }
+
+      // Update email bar + toggle button text
+      const emailBar = document.getElementById('email-bar');
+      const emailBtn = document.getElementById('email-users-btn');
+      if (emailMode) {
+        emailBar.classList.add('visible');
+        emailBtn.classList.add('active');
+        emailBtn.textContent = 'Cancel';
+        const cnt = selectedUsers.size;
+        document.getElementById('email-msg').textContent = cnt > 0 ? `${cnt} user${cnt > 1 ? 's' : ''} selected` : 'Select users to email';
+        document.getElementById('email-checkin').disabled = cnt === 0;
+        document.getElementById('email-unranked').disabled = cnt === 0;
+        document.getElementById('email-mailto').disabled = cnt === 0;
+      } else {
+        emailBar.classList.remove('visible');
+        emailBtn.classList.remove('active');
+        emailBtn.textContent = 'Email Users';
+      }
     }
 
     document.addEventListener('click', async (e) => {
       const t = e.target;
 
+      // Sortable column headers
+      const sortTh = t.closest('[data-sort]');
+      if (sortTh) {
+        const col = sortTh.dataset.sort;
+        sortBy = sortBy === col ? 'id' : col; // toggle
+        render(); return;
+      }
+
+      // Email mode checkbox clicks
+      if (t.dataset.emailUid) {
+        const id = parseInt(t.dataset.emailUid);
+        if (t.checked) selectedUsers.add(id); else selectedUsers.delete(id);
+        render(); return;
+      }
+      if (t.id === 'email-select-all') {
+        const uwe = users.filter(u => !!u.email);
+        if (t.checked) uwe.forEach(u => selectedUsers.add(u.id));
+        else uwe.forEach(u => selectedUsers.delete(u.id));
+        render(); return;
+      }
+
       const expandRow = t.closest('[data-expand]');
-      if (expandRow && !t.closest('button')) {
+      if (expandRow && !t.closest('.actions') && !t.closest('.edit-row') && !t.closest('.confirm-row') && !t.closest('button') && !t.closest('.email-checkbox')) {
         const id = parseInt(expandRow.dataset.expand);
         showUserDetail(id);
         return;
       }
+
+      if (t.dataset.edit) {
+        editingUser = parseInt(t.dataset.edit);
+        confirmingDelete = null;
+        render(); return;
+      }
+
+      if (t.dataset.save) {
+        const id = parseInt(t.dataset.save);
+        const username = document.getElementById('edit-username')?.value.trim();
+        const password = document.getElementById('edit-password')?.value.trim();
+        const body = {};
+        if (username) body.username = username;
+        if (password) body.password = password;
+        if (Object.keys(body).length === 0) { editingUser = null; render(); return; }
+        try {
+          users = await apiFetch(`/api/admin/users/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          editingUser = null;
+          render();
+        } catch (e) { alert(e.message); }
+        return;
+      }
+
+      if (t.dataset.cancelEdit !== undefined) { editingUser = null; render(); return; }
+
+      if (t.dataset.confirm) {
+        confirmingDelete = parseInt(t.dataset.confirm);
+        editingUser = null;
+        render(); return;
+      }
+
+      if (t.dataset.doDelete) {
+        const id = parseInt(t.dataset.doDelete);
+        try {
+          users = await apiFetch(`/api/admin/users/${id}`, { method: 'DELETE' });
+          confirmingDelete = null;
+          expandedUser = null;
+          delete songCache[id];
+          render();
+        } catch (e) { alert(e.message); }
+        return;
+      }
+
+      if (t.dataset.cancelDelete !== undefined) { confirmingDelete = null; render(); return; }
 
       if (t.dataset.togglePlan) {
         const id = parseInt(t.dataset.togglePlan);
@@ -573,17 +646,6 @@
         return;
       }
 
-      if (t.dataset.toggleRole) {
-        const id = parseInt(t.dataset.toggleRole);
-        const current = t.dataset.currentRole || 'user';
-        const newRole = current === 'user' ? 'admin' : 'user';
-        const orig = users.find(u => u.id === id);
-        if (!pendingChanges[id]) pendingChanges[id] = {};
-        if (newRole === (orig?.role || 'user')) { delete pendingChanges[id].role; } else { pendingChanges[id].role = newRole; }
-        if (Object.keys(pendingChanges[id]).length === 0) delete pendingChanges[id];
-        render();
-        return;
-      }
     });
 
     // Save bar — persist all pending changes
@@ -614,8 +676,9 @@
     document.getElementById('refresh-btn').addEventListener('click', async () => {
       const btn = document.getElementById('refresh-btn');
       btn.classList.add('spinning');
-      songCache = {}; emailCache = {};
+      songCache = {};
       pendingChanges = {};
+      selectedUsers.clear();
       await loadUsers();
       btn.classList.remove('spinning');
     });
@@ -669,6 +732,57 @@
       if (s && /^https?:\/\//.test(s.value)) { s.value = ''; searchQuery = ''; render(); }
     }, 200);
 
+    // Email mode toggle
+    document.getElementById('email-users-btn').addEventListener('click', () => {
+      emailMode = !emailMode;
+      if (emailMode) selectedUsers.clear();
+      render();
+    });
+
+    document.getElementById('email-mailto').addEventListener('click', () => {
+      const emails = [];
+      for (const id of selectedUsers) {
+        const u = users.find(u => u.id === id);
+        if (u && u.email) emails.push(u.email);
+      }
+      if (emails.length === 0) return;
+      const bcc = emails.join(',');
+      const subject = 'A message from iMade';
+      const body = [
+        'Hey there,',
+        '',
+        '',
+        '',
+        '\u2014',
+        'iMade \u00b7 https://imade.one',
+        'Rank your music. Discover your best work.',
+      ].join('\n');
+      const gmailUrl = 'https://mail.google.com/mail/?view=cm&bcc=' + encodeURIComponent(bcc) + '&su=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+      window.open(gmailUrl, 'gmail');
+    });
+
+    async function sendAdminEmail(type) {
+      const ids = [...selectedUsers];
+      const btn = document.getElementById(type === 'checkin' ? 'email-checkin' : 'email-unranked');
+      const origText = btn.textContent;
+      btn.disabled = true; btn.textContent = 'Sending...';
+      try {
+        const data = await apiFetch(`/api/admin/email/${type}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userIds: ids }),
+        });
+        alert(`Sent to ${data.sent} user${data.sent !== 1 ? 's' : ''}${data.skipped ? ` (${data.skipped} skipped — no email)` : ''}`);
+        selectedUsers.clear();
+        emailMode = false;
+        render();
+      } catch (e) { console.error('Email send error:', e); alert('Failed: ' + e.message); }
+      btn.disabled = false; btn.textContent = origText;
+    }
+
+    document.getElementById('email-checkin').addEventListener('click', () => sendAdminEmail('checkin'));
+    document.getElementById('email-unranked').addEventListener('click', () => sendAdminEmail('unranked'));
+
     // ===================== USER DETAIL VIEW =====================
 
     async function showUserDetail(id) {
@@ -678,15 +792,11 @@
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       document.querySelector('.tab-bar').style.display = 'none';
       document.getElementById('user-detail').classList.add('active');
-      // Load songs and emails if not cached
-      if (!songCache[id] || !emailCache[id]) {
+      // Load songs if not cached
+      if (!songCache[id]) {
         renderUserDetail(); // show loading state
-        const [songs, emails] = await Promise.all([
-          songCache[id] ? songCache[id] : apiFetch(`/api/admin/users/${id}/songs`).catch(() => []),
-          emailCache[id] ? emailCache[id] : apiFetch(`/api/admin/users/${id}/emails`).catch(() => []),
-        ]);
-        songCache[id] = songs;
-        emailCache[id] = emails;
+        try { songCache[id] = await apiFetch(`/api/admin/users/${id}/songs`); }
+        catch { songCache[id] = []; }
       }
       renderUserDetail();
     }
@@ -734,10 +844,10 @@
           <div class="detail-avatar">${esc(u.username.charAt(0).toUpperCase())}</div>
           <div>
             <div class="detail-name">${esc(u.username)}
+              ${role === 'admin' ? '<span class="badge">admin</span>' : ''}
               <span class="badge ${plan === 'full' ? 'badge-full' : 'badge-trial'}">${plan}</span>
-              ${u.email_verified ? '<span class="badge badge-verified">verified</span>' : u.email ? '<span class="badge badge-unverified">unverified</span>' : ''}
             </div>
-            <div class="detail-meta">ID: ${users.indexOf(u)}${u.email ? ' \u00b7 ' + esc(u.email) : ''} \u00b7 Joined ${formatDate(u.created_at)}</div>
+            <div class="detail-meta">ID: ${u.id} \u00b7 Joined ${formatDate(u.created_at)} \u00b7 Last active <span style="color:${lastActiveColor(u.last_active)}">${timeAgo(u.last_active)}</span></div>
           </div>
         </div>
         <div style="display:flex;gap:8px">
@@ -771,25 +881,6 @@
         </div>
       </div>`;
 
-      // Account section
-      html += `<div class="detail-section">
-        <h3>Account</h3>
-        <div style="background:#0f0f1a;border:1px solid #1e1e35;border-radius:10px;padding:20px">
-          <form autocomplete="off" onsubmit="return false">
-          <div style="display:flex;flex-direction:column;gap:14px;max-width:360px">
-            <div class="field"><label>Username</label><input id="detail-edit-username" value="${esc(u.username)}" autocomplete="off" /></div>
-            <div class="field"><label>Email</label><input id="detail-edit-email" value="${esc(u.email || '')}" placeholder="user@example.com" autocomplete="off" /></div>
-            <div class="field"><label>New Password</label><input id="detail-edit-password" type="password" placeholder="Leave empty to keep" autocomplete="new-password" /></div>
-            <div style="display:flex;gap:8px;margin-top:4px">
-              <button class="btn btn-save" id="detail-save-account">Save</button>
-              ${u.id !== 1 ? '<button class="btn btn-delete" id="detail-delete-user">Delete User</button>' : ''}
-            </div>
-            <div id="detail-account-msg" style="font-size:12px;display:none"></div>
-          </div>
-          </form>
-        </div>
-      </div>`;
-
       // Genres breakdown
       if (songs && songs.length > 0) {
         const sortedGenres = Object.entries(genreCounts).sort((a, b) => b[1] - a[1]);
@@ -799,29 +890,6 @@
             ${sortedGenres.map(([g, c]) => `<span class="genre-tag">${esc(g)}<span class="count">${c}</span></span>`).join('')}
           </div>
         </div>`;
-      }
-
-      // Emails sent
-      const emails = emailCache[u.id];
-      if (emails && emails.length > 0) {
-        html += `<div class="detail-section">
-          <h3>Emails Sent (${emails.length})</h3>
-          <div class="table-wrap"><table><thead><tr>
-            <th>Date</th><th>Type</th><th>Status</th>
-          </tr></thead><tbody>`;
-        emails.forEach(em => {
-          const typeLabel = em.type === 'verify' ? 'Verification' : em.type === 'reset' ? 'Password Reset' : esc(em.type);
-          const typeBadge = em.type === 'verify'
-            ? '<span class="action-badge action-badge-register">' + typeLabel + '</span>'
-            : '<span class="action-badge action-badge-login">' + typeLabel + '</span>';
-          const status = em.used ? '<span style="color:#22c55e">Used</span>' : (em.expires_at < Date.now() ? '<span style="color:#6b7280">Expired</span>' : '<span style="color:#f59e0b">Pending</span>');
-          html += `<tr>
-            <td>${formatDateTime(em.created_at)}</td>
-            <td>${typeBadge}</td>
-            <td>${status}</td>
-          </tr>`;
-        });
-        html += '</tbody></table></div></div>';
       }
 
       // Songs table
@@ -874,7 +942,6 @@
       }
 
       html += '</div>';
-
       el.innerHTML = html;
 
       // Bind events
@@ -925,47 +992,6 @@
           alert('Import complete');
         } catch (e) { alert('Import failed: ' + e.message); }
         label.innerHTML = 'Import Data<input type="file" accept=".json" id="detail-import-input" style="display:none" />';
-      });
-      // Account save
-      document.getElementById('detail-save-account')?.addEventListener('click', async () => {
-        const btn = document.getElementById('detail-save-account');
-        const msgEl = document.getElementById('detail-account-msg');
-        const username = document.getElementById('detail-edit-username')?.value.trim();
-        const emailVal = document.getElementById('detail-edit-email')?.value.trim();
-        const password = document.getElementById('detail-edit-password')?.value.trim();
-        const body = {};
-        if (username && username !== u.username) body.username = username;
-        if (emailVal !== (u.email || '')) body.email = emailVal;
-        if (password) body.password = password;
-        if (Object.keys(body).length === 0) {
-          msgEl.style.display = 'block'; msgEl.style.color = '#6b7280'; msgEl.textContent = 'No changes to save.';
-          setTimeout(() => msgEl.style.display = 'none', 2000);
-          return;
-        }
-        btn.disabled = true; btn.textContent = 'Saving...';
-        try {
-          users = await apiFetch(`/api/admin/users/${u.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-          });
-          delete emailCache[u.id];
-          renderUserDetail();
-        } catch (e) {
-          msgEl.style.display = 'block'; msgEl.style.color = '#ef4444'; msgEl.textContent = e.message;
-          btn.disabled = false; btn.textContent = 'Save';
-        }
-      });
-      // Account delete
-      document.getElementById('detail-delete-user')?.addEventListener('click', async () => {
-        if (!confirm(`Delete ${u.username} and all their data? This cannot be undone.`)) return;
-        try {
-          users = await apiFetch(`/api/admin/users/${u.id}`, { method: 'DELETE' });
-          delete songCache[u.id];
-          delete emailCache[u.id];
-          hideUserDetail();
-          render();
-        } catch (e) { alert(e.message); }
       });
     }
 
@@ -1018,9 +1044,7 @@
       const labels = {
         login: 'Login', logout: 'Logout', register: 'Register',
         song_create: 'Upload', song_bulk_upload: 'Upload',
-        song_edit: 'Edit Song', song_delete: 'Delete Song',
-        username_change: 'Username', password_reset: 'Password Reset',
-        password_reset_requested: 'Reset Requested', email_verified: 'Email Verified'
+        song_edit: 'Edit Song', song_delete: 'Delete Song'
       };
       const label = labels[action] || action;
       return `<span class="action-badge action-badge-${esc(action)}">${esc(label)}</span>`;
@@ -1124,8 +1148,6 @@
       document.getElementById('activity-search')?.addEventListener('input', (e) => {
         activitySearch = e.target.value;
         renderActivity();
-        const input = document.getElementById('activity-search');
-        if (input) { input.focus(); input.selectionStart = input.selectionEnd = input.value.length; }
       });
       el.querySelectorAll('[data-activity-expand]').forEach(row => {
         row.addEventListener('click', () => {

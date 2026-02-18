@@ -172,7 +172,8 @@ function getAllUsersWithStats() {
     SELECT u.id, u.username, u.email, u.email_verified, u.plan, u.role, u.created_at,
       (SELECT COUNT(*) FROM songs WHERE user_id = u.id) AS song_count,
       (SELECT COUNT(*) FROM comparisons WHERE user_id = u.id) AS comparison_count,
-      (SELECT COUNT(*) FROM playlists WHERE user_id = u.id) AS playlist_count
+      (SELECT COUNT(*) FROM playlists WHERE user_id = u.id) AS playlist_count,
+      (SELECT MAX(created_at) FROM activity_log WHERE user_id = u.id) AS last_active
     FROM users u ORDER BY u.id
   `).all();
 }
@@ -421,6 +422,18 @@ function cleanExpiredSessions() {
   getDb().prepare("DELETE FROM sessions WHERE expired < ?").run(Date.now());
 }
 
+function getOnlineUserIds() {
+  const rows = getDb().prepare("SELECT sess FROM sessions WHERE expired > ?").all(Date.now());
+  const ids = new Set();
+  for (const row of rows) {
+    try {
+      const sess = JSON.parse(row.sess);
+      if (sess.userId) ids.add(sess.userId);
+    } catch {}
+  }
+  return ids;
+}
+
 // --- Bulk operations for backup/restore ---
 
 function bulkReplace(userId, data) {
@@ -557,7 +570,7 @@ module.exports = {
   getGenres, addGenre, deleteGenre, renameGenre,
   getPlaylists, insertPlaylist, updatePlaylist, deletePlaylist,
   getListenTimes, updateListenTimes, deleteListenTimes,
-  getSession, setSession, destroySession, cleanExpiredSessions,
+  getSession, setSession, destroySession, cleanExpiredSessions, getOnlineUserIds,
   bulkReplace,
   logActivity, getActivityLog, getActivityLogCount,
 };
