@@ -1260,16 +1260,18 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(56px,1fr))",gap:4}}>
                   {(() => { const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
                     const allElos = creativeStreaks.months.filter(m => m.avgElo !== null).map(m => m.avgElo);
-                    const minElo = Math.min(...allElos, creativeStreaks.overallAvg);
-                    const maxElo = Math.max(...allElos, creativeStreaks.overallAvg);
-                    const eloRange = maxElo - minElo || 1;
+                    const avg = creativeStreaks.overallAvg;
+                    const minElo = Math.min(...allElos, avg);
+                    const maxElo = Math.max(...allElos, avg);
+                    const belowRange = avg - minElo || 1;
+                    const aboveRange = maxElo - avg || 1;
                     const maxCount = Math.max(...creativeStreaks.months.map(m => m.count), 1);
                     return creativeStreaks.months.map(m => {
                     let bg = "#1e1e35";
                     let borderColor = "transparent";
                     if (m.count > 0 && m.avgElo !== null) {
-                      // t: 0=worst elo, 1=best elo. Squeeze yellow zone so more red/green shows
-                      const raw = (m.avgElo - minElo) / eloRange;
+                      // raw: 0.5 = overall average, <0.5 = below avg (red), >0.5 = above avg (green)
+                      const raw = m.avgElo <= avg ? 0.5 * (m.avgElo - minElo) / belowRange : 0.5 + 0.5 * (m.avgElo - avg) / aboveRange;
                       // S-curve: pushes values away from 0.5 (less yellow, more red/green)
                       const t = raw < 0.5 ? 0.5 * Math.pow(2 * raw, 2.8) : 1 - 0.5 * Math.pow(2 * (1 - raw), 2.8);
                       let r, g, b;
