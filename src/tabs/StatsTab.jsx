@@ -515,8 +515,9 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
     const minDate = new Date(Math.min(...allDates));
     const maxDate = new Date(Math.max(...allDates));
     const months = [];
-    const cur = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
-    while (cur <= maxDate) {
+    const cur = new Date(minDate.getFullYear(), 0, 1);
+    const endDate = new Date(maxDate.getFullYear(), 11, 31);
+    while (cur <= endDate) {
       const key = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}`;
       const songs = monthMap[key] || [];
       const avgElo = songs.length > 0 ? songs.reduce((s, x) => s + x.elo, 0) / songs.length : null;
@@ -1257,7 +1258,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
               {/* Month Grid Calendar */}
               <div ref={cardRef("growth",0)} style={{...cardStyle,marginBottom:16}}>
                 <div style={headStyle}>monthly output</div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(56px,1fr))",gap:4}}>
+                <div>
                   {(() => { const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
                     const allElos = creativeStreaks.months.filter(m => m.avgElo !== null).map(m => m.avgElo);
                     const avg = creativeStreaks.overallAvg;
@@ -1266,29 +1267,30 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
                     const belowRange = avg - minElo || 1;
                     const aboveRange = maxElo - avg || 1;
                     const maxCount = Math.max(...creativeStreaks.months.map(m => m.count), 1);
-                    return creativeStreaks.months.map(m => {
+                    // Group months by year
+                    const years = {};
+                    creativeStreaks.months.forEach(m => { if (!years[m.year]) years[m.year] = []; years[m.year].push(m); });
+                    return Object.entries(years).map(([year, yMonths]) => (
+                      <div key={year} style={{display:"flex",gap:4,marginBottom:4,alignItems:"center"}}>
+                        <div style={{width:32,flexShrink:0,color:"#6b7280",fontSize:10,fontWeight:600,textAlign:"right",paddingRight:4}}>{year}</div>
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(12,1fr)",gap:4,flex:1}}>
+                          {yMonths.map(m => {
                     let bg = "#1e1e35";
                     let borderColor = "transparent";
                     if (m.count > 0 && m.avgElo !== null) {
-                      // raw: 0.5 = overall average, <0.5 = below avg (red), >0.5 = above avg (green)
                       const raw = m.avgElo <= avg ? 0.5 * (m.avgElo - minElo) / belowRange : 0.5 + 0.5 * (m.avgElo - avg) / aboveRange;
-                      // S-curve: pushes values away from 0.5 (less yellow, more red/green)
                       const t = raw < 0.5 ? 0.5 * Math.pow(2 * raw, 2.8) : 1 - 0.5 * Math.pow(2 * (1 - raw), 2.8);
                       let r, g, b;
                       if (t < 0.4) {
-                        // Red to orange
                         const p = t / 0.4;
                         r = 240; g = Math.round(55 + 130 * p); b = Math.round(40 * (1 - p));
                       } else if (t < 0.6) {
-                        // Orange/yellow (narrow band)
                         const p = (t - 0.4) / 0.2;
                         r = Math.round(240 - 30 * p); g = Math.round(185 + 25 * p); b = 0;
                       } else {
-                        // Green range (wide)
                         const p = (t - 0.6) / 0.4;
                         r = Math.round(210 - 170 * p); g = Math.round(210 - 10 * p + 30 * p); b = Math.round(50 * p);
                       }
-                      // Brightness = song count — higher base, more range
                       const alpha = 0.15 + 0.35 * (m.count / maxCount);
                       bg = `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
                       borderColor = `rgba(${r},${g},${b},${Math.min(0.9, alpha + 0.35).toFixed(2)})`;
@@ -1300,14 +1302,16 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
                         <div style={{background:bg,borderRadius:6,padding:"6px 4px",textAlign:"center",minHeight:40,display:"flex",flexDirection:"column",justifyContent:"center",
                           border: isSelected ? "1px solid #818cf8" : m.count > 0 ? `1px solid ${borderColor}` : "1px solid transparent",
                           transition:"all 0.15s",cursor:m.count > 0 ? "pointer" : undefined}}>
-                          <div style={{color:"#9a9ab0",fontSize:8}}>{monthNames[m.month]} {String(m.year).slice(2)}</div>
+                          <div style={{color:"#9a9ab0",fontSize:8}}>{monthNames[m.month]}</div>
                           <div style={{color:m.count > 0 ? "#e2e8f0" : "#5a5a70",fontSize:13,fontWeight:700}}>{m.count || "-"}</div>
                           {m.avgElo !== null && <div style={{color:"#9a9ab0",fontSize:8}}>{m.avgElo}</div>}
                         </div>
                       </div>
                     );
-                  }); })()}
-                </div>
+                  })}
+                        </div>
+                      </div>
+                    )); })()}
                 {/* Legend */}
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:10,gap:12,flexWrap:"wrap"}}>
                   <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -1336,6 +1340,7 @@ function StatsTab({ songs, comparisons, listenTimes, onStartFocusedSession, setP
                       <span style={{color:"#6b7280",fontSize:9}}>many</span>
                     </div>
                   </div>
+                </div>
                 </div>
               </div>
 
