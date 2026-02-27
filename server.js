@@ -1115,12 +1115,7 @@ app.post("/api/admin/email/unranked", requireAdmin, async (req, res) => {
 // ---- ADMIN PANEL (separate static site) ----
 
 const ADMIN_DIR = path.join(__dirname, "admin");
-// Admin panel — local only (Electron or shared mode)
-if (IMADE_MODE === "electron" || SHARED_MODE) {
-  app.use("/admin", express.static(ADMIN_DIR, { etag: false, lastModified: false, setHeaders: (res) => res.setHeader("Cache-Control", "no-cache, no-store") }));
-} else {
-  app.use("/admin", (req, res) => res.status(404).send("Not found"));
-}
+app.use("/admin", express.static(ADMIN_DIR, { etag: false, lastModified: false, setHeaders: (res) => res.setHeader("Cache-Control", "no-cache, no-store") }));
 
 // ---- VISUALIZER GRID (standalone screenshot tool) ----
 app.get("/visualizer-grid", (req, res) => res.sendFile(path.join(__dirname, "visualizer-grid.html")));

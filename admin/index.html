@@ -847,7 +847,7 @@
               ${role === 'admin' ? '<span class="badge">admin</span>' : ''}
               <span class="badge ${plan === 'full' ? 'badge-full' : 'badge-trial'}">${plan}</span>
             </div>
-            <div class="detail-meta">ID: ${u.id} \u00b7 Joined ${formatDate(u.created_at)} \u00b7 Last active <span style="color:${lastActiveColor(u.last_active)}">${timeAgo(u.last_active)}</span></div>
+            <div class="detail-meta">ID: ${u.id} \u00b7 ${u.email ? esc(u.email) + ' \u00b7 ' : ''}Joined ${formatDate(u.created_at)} \u00b7 Last active <span style="color:${lastActiveColor(u.last_active)}">${timeAgo(u.last_active)}</span></div>
           </div>
         </div>
         <div style="display:flex;gap:8px">
