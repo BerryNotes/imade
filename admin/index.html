@@ -333,11 +333,15 @@
     document.getElementById('env-local').addEventListener('click', () => switchEnv('local'));
     document.getElementById('env-prod').addEventListener('click', () => switchEnv('prod'));
 
-    // Auto-connect to local server
-    API = location.origin;
-    TOKEN = '__session__';
-    showDashboard();
-    loadUsers();
+    // Auto-connect: use prod mode if on app.imade.one, else local
+    if (location.hostname === 'app.imade.one') {
+      switchEnv('prod');
+    } else {
+      API = location.origin;
+      TOKEN = '__session__';
+      showDashboard();
+      loadUsers();
+    }
 
     function showDashboard() {
       document.getElementById('login-screen').style.display = 'none';
