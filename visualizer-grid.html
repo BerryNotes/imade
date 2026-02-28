@@ -1,0 +1,1303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>iMade — Visualizer Grid</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #0f0d1a; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  width: 100vw;
+  height: 100vh;
+}
+.cell { position: relative; overflow: hidden; }
+.cell canvas { display: block; width: 100%; height: 100%; }
+.label {
+  position: absolute;
+  bottom: 6px;
+  left: 8px;
+  font-size: 11px;
+  color: rgba(148,163,184,0.6);
+  pointer-events: none;
+  z-index: 2;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+}
+</style>
+</head>
+<body>
+<div class="grid" id="grid"></div>
+<script>
+const MODES = [
+  { id: 'bars', label: 'EQ' },
+  { id: 'radial', label: 'Radial' },
+  { id: 'wave', label: 'Wave' },
+  { id: 'spectrograph', label: 'Spectrograph' },
+  { id: 'particles', label: 'Particles' },
+  { id: 'orbit', label: 'Orbit' },
+  { id: 'sphere', label: 'Sphere' },
+  { id: 'grid', label: 'Grid' },
+  { id: 'laser', label: 'Laser' },
+];
+const MAX_PARTICLES = 1500;
+
+// --- Global state ---
+let fx = false;
+let vizTime = 0;
+let isPlaying = false;
+let lastRealTime = 0;
+
+// --- Audio ---
+let audioCtx, analyserLo, analyserHi;
+let freqBufLo, timeBufLo, freqBufHi;
+
+// --- Cells ---
+const cells = [];
+
+// ===================== INIT =====================
+
+function init() {
+  const gridEl = document.getElementById('grid');
+
+  MODES.forEach((mode) => {
+    const div = document.createElement('div');
+    div.className = 'cell';
+    const canvas = document.createElement('canvas');
+    div.appendChild(canvas);
+    const label = document.createElement('div');
+    label.className = 'label';
+    label.textContent = mode.label;
+    div.appendChild(label);
+    gridEl.appendChild(div);
+
+    cells.push({
+      mode: mode.id,
+      canvas,
+      ctx: canvas.getContext('2d'),
+      particles: [],
+      orbitParticles: [],
+      gridParticles: null,
+      laserCanvas: null,
+      waveHistory: [],
+      spectroCanvas: null,
+      spectroWrite: 0,
+      ringIndex: 0,
+      particleSpawned: 0,
+      sphereTime: 0,
+      prevDims: { w: 0, h: 0 },
+      cssW: 0,
+      cssH: 0,
+    });
+  });
+
+  // Shift toggles FX
+  document.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    if (e.key === 'Shift') fx = !fx;
+  });
+
+  resizeAll();
+  new ResizeObserver(resizeAll).observe(gridEl);
+
+  // Start audio — click to resume if autoplay blocked
+  startAudioPattern();
+  document.addEventListener('click', () => {
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  }, { once: true });
+
+  requestAnimationFrame(loop);
+}
+
+function startAudioPattern() {
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  const master = audioCtx.createGain();
+  master.gain.value = 0.18;
+
+  // Pulsing square wave
+  const osc = audioCtx.createOscillator();
+  osc.type = 'square';
+  osc.frequency.value = 110;
+
+  const lfo = audioCtx.createOscillator();
+  lfo.frequency.value = 0.5; // slow pulse
+  const lfoGain = audioCtx.createGain();
+  lfoGain.gain.value = 0.06;
+  lfo.connect(lfoGain);
+  lfoGain.connect(master.gain);
+
+  const lpf = audioCtx.createBiquadFilter();
+  lpf.type = 'lowpass';
+  lpf.frequency.value = 2000;
+  lpf.Q.value = 0.7;
+
+  osc.connect(lpf);
+  lpf.connect(master);
+  osc.start();
+  lfo.start();
+
+  // Analysers
+  analyserLo = audioCtx.createAnalyser();
+  analyserLo.fftSize = 512;
+  analyserLo.smoothingTimeConstant = 0.8;
+
+  analyserHi = audioCtx.createAnalyser();
+  analyserHi.fftSize = 8192;
+  analyserHi.smoothingTimeConstant = 0.8;
+
+  // Signal flows: master → analysers (full volume) → mute → speakers (silent)
+  const mute = audioCtx.createGain();
+  mute.gain.value = 0.0;
+
+  master.connect(analyserLo);
+  master.connect(analyserHi);
+  analyserLo.connect(mute);
+  mute.connect(audioCtx.destination);
+
+  isPlaying = true;
+}
+
+function resizeAll() {
+  const dpr = window.devicePixelRatio || 1;
+  cells.forEach((cell) => {
+    const rect = cell.canvas.parentElement.getBoundingClientRect();
+    const w = rect.width;
+    const h = rect.height;
+    if (w === 0 || h === 0) return;
+    cell.canvas.width = w * dpr;
+    cell.canvas.height = h * dpr;
+    cell.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cell.cssW = w;
+    cell.cssH = h;
+  });
+}
+
+// ===================== ANIMATION LOOP =====================
+
+let lastFrameTime = 0;
+const FRAME_INTERVAL = 1000 / 30;
+
+function loop(now) {
+  requestAnimationFrame(loop);
+  if (now - lastFrameTime < FRAME_INTERVAL) return;
+  lastFrameTime = now;
+
+  // No audio yet — just fill backgrounds
+  if (!analyserLo) {
+    cells.forEach((cell) => {
+      const w = cell.cssW, h = cell.cssH;
+      if (w === 0 || h === 0) return;
+      cell.ctx.clearRect(0, 0, w, h);
+      cell.ctx.fillStyle = '#0f0d1a';
+      cell.ctx.fillRect(0, 0, w, h);
+    });
+    return;
+  }
+
+  // dt
+  let dt = 0;
+  if (isPlaying) {
+    const realNow = performance.now() / 1000;
+    dt = lastRealTime > 0 ? Math.min(realNow - lastRealTime, 0.1) : 0.016;
+    lastRealTime = realNow;
+    vizTime += dt;
+  } else {
+    lastRealTime = 0;
+  }
+
+  // Get audio data
+  const loLen = analyserLo.frequencyBinCount;
+  const hiLen = analyserHi.frequencyBinCount;
+  if (!freqBufLo || freqBufLo.length !== loLen) freqBufLo = new Uint8Array(loLen);
+  if (!timeBufLo || timeBufLo.length !== analyserLo.fftSize) timeBufLo = new Uint8Array(analyserLo.fftSize);
+  if (!freqBufHi || freqBufHi.length !== hiLen) freqBufHi = new Uint8Array(hiLen);
+
+  if (isPlaying) {
+    analyserLo.getByteFrequencyData(freqBufLo);
+    analyserLo.getByteTimeDomainData(timeBufLo);
+    analyserHi.getByteFrequencyData(freqBufHi);
+  }
+
+  cells.forEach((cell) => {
+    const w = cell.cssW, h = cell.cssH;
+    if (w === 0 || h === 0) return;
+    const ctx = cell.ctx;
+
+    cell.sphereTime += dt;
+
+    // Rescale particles if canvas dimensions changed
+    const prev = cell.prevDims;
+    if (prev.w > 0 && prev.h > 0 && (prev.w !== w || prev.h !== h)) {
+      const xScale = w / prev.w;
+      const yScale = h / prev.h;
+      for (const p of cell.particles) { p.x *= xScale; p.y *= yScale; }
+    }
+    cell.prevDims = { w, h };
+
+    // Clear / background
+    if (cell.mode === 'laser') {
+      const dpr = window.devicePixelRatio || 1;
+      const cw = cell.canvas.width;
+      const ch = cell.canvas.height;
+      let lc = cell.laserCanvas;
+      if (!lc || lc.width !== cw || lc.height !== ch) {
+        lc = document.createElement('canvas');
+        lc.width = cw; lc.height = ch;
+        cell.laserCanvas = lc;
+      }
+      const lctx = lc.getContext('2d');
+      lctx.clearRect(0, 0, cw, ch);
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, w, h);
+    } else {
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = '#0f0d1a';
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    const freqData = cell.mode === 'spectrograph' ? freqBufHi : freqBufLo;
+    const timeData = timeBufLo;
+
+    try {
+      switch (cell.mode) {
+        case 'bars': drawBars(ctx, w, h, freqData); break;
+        case 'radial': drawRadial(ctx, w, h, freqData); break;
+        case 'wave': drawWaveSingle(ctx, w, h, timeData, cell); break;
+        case 'spectrograph': drawSpectrograph(ctx, w, h, freqData, cell); break;
+        case 'particles': drawParticles(ctx, w, h, freqData, vizTime, cell); break;
+        case 'orbit': drawOrbit(ctx, w, h, freqData, vizTime, dt, cell); break;
+        case 'sphere': drawSphere(ctx, w, h, freqData, cell); break;
+        case 'grid': drawGrid(ctx, w, h, freqData, vizTime, cell); break;
+        case 'laser': drawLaser(ctx, w, h, timeData, freqData, vizTime, cell); break;
+      }
+    } catch (e) { /* skip frame on error */ }
+  });
+}
+
+// ===================== DRAW FUNCTIONS =====================
+
+function drawBars(ctx, w, h, data) {
+  const barCount = 48;
+  const margin = w * 0.08;
+  const usableW = w - margin * 2;
+  const totalGap = usableW * 0.15;
+  const gap = totalGap / (barCount + 1);
+  const barW = (usableW - totalGap) / barCount;
+  const t = performance.now() / 1000;
+
+  const maxBin = Math.floor(data.length * 0.68);
+  const vals = [];
+  for (let i = 0; i < barCount; i++) {
+    const center = Math.floor(i * maxBin / barCount);
+    const span = Math.max(1, Math.floor(maxBin / barCount / 2));
+    let sum = 0, count = 0;
+    for (let j = Math.max(0, center - span); j <= Math.min(data.length - 1, center + span); j++) { sum += data[j]; count++; }
+    vals.push(Math.pow((sum / count) / 255, 0.75));
+  }
+
+  for (let i = 0; i < barCount; i++) {
+    const val = vals[i];
+    const barH = val * h * 0.85;
+    const x = margin + gap + i * (barW + gap);
+    const pct = i / barCount;
+
+    if (fx) {
+      const hue = (t * 25 + pct * 120 + val * 60) % 360;
+      const sat = 65 + val * 20;
+      const light = 50 + val * 15;
+      ctx.fillStyle = `hsla(${hue}, ${sat}%, ${light}%, 0.85)`;
+    } else {
+      const rC = Math.floor(80 + pct * 120);
+      const gC = Math.floor(60 + pct * 130);
+      const bC = Math.floor(200 + pct * 55);
+      ctx.fillStyle = `rgba(${rC},${gC},${bC},0.85)`;
+    }
+
+    const r = Math.min(barW / 2, 6);
+    ctx.beginPath();
+    ctx.moveTo(x, h);
+    ctx.lineTo(x, h - barH + r);
+    ctx.quadraticCurveTo(x, h - barH, x + r, h - barH);
+    ctx.lineTo(x + barW - r, h - barH);
+    ctx.quadraticCurveTo(x + barW, h - barH, x + barW, h - barH + r);
+    ctx.lineTo(x + barW, h);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+function drawRadial(ctx, w, h, data) {
+  if (fx) { drawRadialSphere(ctx, w, h, data); return; }
+
+  const cx = w / 2;
+  const cy = h / 2;
+  const innerR = Math.min(w, h) * 0.12;
+  const maxR = Math.min(w, h) * 0.42;
+  const barCount = 96;
+  const maxBin = Math.floor(data.length * 0.68);
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, innerR - 1, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(26,21,53,0.4)';
+  ctx.fill();
+
+  const lineW = Math.max(2, (Math.PI * 2 * innerR / barCount) * 0.7);
+  for (let i = 0; i < barCount; i++) {
+    const center = Math.floor(i * maxBin / barCount);
+    const span = Math.max(1, Math.floor(maxBin / barCount));
+    let sum = 0, count = 0;
+    for (let j = Math.max(0, center - span); j <= Math.min(data.length - 1, center + span); j++) { sum += data[j]; count++; }
+    const raw = Math.pow((sum / count) / 255, 0.75);
+    const angle = (i / barCount) * Math.PI * 2 - Math.PI / 2;
+    const freqScale = 0.6 + (i / barCount) * 0.8;
+    const val = Math.min(1, raw * freqScale);
+    const barLen = val * (maxR - innerR);
+    const pct = i / barCount;
+    const lightness = 55 + pct * 30;
+    ctx.strokeStyle = `hsla(${240 + pct * 40}, 65%, ${lightness}%, ${0.35 + val * 0.55})`;
+    ctx.lineWidth = lineW;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(angle) * innerR, cy + Math.sin(angle) * innerR);
+    ctx.lineTo(cx + Math.cos(angle) * (innerR + barLen), cy + Math.sin(angle) * (innerR + barLen));
+    ctx.stroke();
+  }
+  ctx.lineCap = 'butt';
+}
+
+function drawRadialSphere(ctx, w, h, data) {
+  const cx = w / 2;
+  const cy = h / 2;
+  const sphereR = Math.min(w, h) * 0.18;
+  const maxBarLen = Math.min(w, h) * 0.24;
+  const maxBin = Math.floor(data.length * 0.68);
+  const t = vizTime;
+
+  const rotX = t * 0.15;
+  const rotY = t * 0.22;
+  const rotZ = t * 0.08;
+  const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+  const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+  const cosZ = Math.cos(rotZ), sinZ = Math.sin(rotZ);
+
+  const project = (x3, y3, z3) => {
+    const y1 = y3 * cosX - z3 * sinX;
+    const z1 = y3 * sinX + z3 * cosX;
+    const x2 = x3 * cosY + z1 * sinY;
+    const z2 = -x3 * sinY + z1 * cosY;
+    const xf = x2 * cosZ - y1 * sinZ;
+    const yf = x2 * sinZ + y1 * cosZ;
+    const perspective = 600;
+    const scale = perspective / (perspective + z2);
+    return { x: cx + xf * scale, y: cy + yf * scale, z: z2, scale };
+  };
+
+  const latBands = 10;
+  const bars = [];
+  let freqCursor = 0;
+
+  for (let lat = 1; lat < latBands; lat++) {
+    const theta = (lat / latBands) * Math.PI;
+    const ny = Math.cos(theta);
+    const ringR = Math.sin(theta);
+    const lonCount = Math.max(6, Math.round(14 * ringR));
+
+    for (let lon = 0; lon < lonCount; lon++) {
+      const phi = (lon / lonCount) * Math.PI * 2;
+      const nx = ringR * Math.cos(phi);
+      const nz = ringR * Math.sin(phi);
+
+      const binIdx = Math.min(Math.floor(freqCursor), maxBin - 1);
+      freqCursor += maxBin / 120;
+      const raw = data[binIdx] / 255;
+      const val = Math.pow(raw, 0.75);
+
+      const base = project(nx * sphereR, ny * sphereR, nz * sphereR);
+      const tipR = sphereR + val * maxBarLen;
+      const tip = project(nx * tipR, ny * tipR, nz * tipR);
+
+      bars.push({ base, tip, val, lat, phi });
+    }
+  }
+
+  bars.sort((a, b) => a.base.z - b.base.z);
+
+  ctx.lineCap = 'round';
+  for (const b of bars) {
+    const depth = (b.base.z + sphereR) / (2 * sphereR);
+    const alpha = 0.15 + depth * 0.55 + b.val * 0.3;
+    const hue = 240 + (b.lat / latBands) * 40;
+    const lightness = 50 + b.val * 30 + depth * 10;
+    ctx.strokeStyle = `hsla(${hue}, 65%, ${lightness}%, ${Math.min(1, alpha)})`;
+    ctx.lineWidth = Math.max(1.5, 3 * b.base.scale);
+    ctx.beginPath();
+    ctx.moveTo(b.base.x, b.base.y);
+    ctx.lineTo(b.tip.x, b.tip.y);
+    ctx.stroke();
+  }
+  ctx.lineCap = 'butt';
+}
+
+function drawWaveSingle(ctx, w, h, timeData, cell) {
+  const cx = w / 2;
+  const cy = h / 2;
+  const t = vizTime;
+
+  if (fx) {
+    const cols = 64;
+    const rows = 12;
+    const historySize = 48;
+    const planeW = Math.min(w, h) * 0.75;
+    const planeD = planeW * 1.6;
+
+    const history = cell.waveHistory;
+    if (isPlaying) {
+      const snapshot = [];
+      for (let c = 0; c <= cols; c++) {
+        const idx = Math.floor((c / cols) * (timeData.length - 1));
+        snapshot.push((timeData[idx] - 128) / 128);
+      }
+      history.unshift(snapshot);
+      if (history.length > historySize) history.length = historySize;
+    }
+
+    const rotX = 0.45 + Math.sin(t * 0.04) * 0.1;
+    const rotY = t * 0.1;
+    const cosRX = Math.cos(rotX), sinRX = Math.sin(rotX);
+    const cosRY = Math.cos(rotY), sinRY = Math.sin(rotY);
+
+    const project = (x3, y3, z3) => {
+      const x1 = x3 * cosRY + z3 * sinRY;
+      const z1 = -x3 * sinRY + z3 * cosRY;
+      const y1 = y3 * cosRX - z1 * sinRX;
+      const z2 = y3 * sinRX + z1 * cosRX;
+      const perspective = 500;
+      const denom = Math.max(perspective + z2, 50);
+      const scale = perspective / denom;
+      return { x: cx + x1 * scale, y: cy + y1 * scale, z: z2 };
+    };
+
+    ctx.lineWidth = 1.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    for (let r = 0; r <= rows; r++) {
+      const rz = (r / rows - 0.5) * planeD;
+      const histIdx = Math.floor((rows - r) / rows * (historySize - 1));
+      const waveVals = histIdx < history.length ? history[histIdx] : (history[history.length - 1] || []);
+      ctx.beginPath();
+      for (let c = 0; c <= cols; c++) {
+        const rx = (c / cols - 0.5) * planeW;
+        const raw = waveVals[c] || 0;
+        const clamped = Math.max(-1, Math.min(1, raw));
+        const waveH = clamped * planeW * 0.12;
+        const p = project(rx, -waveH, rz);
+        if (c === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+      }
+      const freshness = r / rows;
+      const alpha = 0.15 + freshness * 0.65;
+      ctx.strokeStyle = `rgba(129,140,248,${alpha})`;
+      ctx.stroke();
+    }
+  } else {
+    const margin = w * 0.08;
+    const waveW = w - margin * 2;
+    const amplitude = h * 0.35;
+
+    ctx.beginPath();
+    for (let i = 0; i < timeData.length; i++) {
+      const x = margin + (i / (timeData.length - 1)) * waveW;
+      const val = (timeData[i] - 128) / 128;
+      const y = cy + val * amplitude;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = 'rgba(129,140,248,0.15)';
+    ctx.lineWidth = 5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    ctx.beginPath();
+    for (let i = 0; i < timeData.length; i++) {
+      const x = margin + (i / (timeData.length - 1)) * waveW;
+      const val = (timeData[i] - 128) / 128;
+      const y = cy + val * amplitude;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = 'rgba(129,140,248,0.6)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+}
+
+function drawSpectrograph(ctx, w, h, freqData, cell) {
+  const dpr = window.devicePixelRatio || 1;
+  const cw = Math.round(w * dpr);
+  const ch = Math.round(h * dpr);
+
+  let sc = cell.spectroCanvas;
+  if (!sc || sc.width !== cw || sc.height !== ch) {
+    const newSc = document.createElement('canvas');
+    newSc.width = cw;
+    newSc.height = ch;
+    if (sc && sc.width > 0 && sc.height > 0) {
+      const nctx = newSc.getContext('2d');
+      nctx.drawImage(sc, 0, 0, sc.width, sc.height, 0, 0, cw, ch);
+    }
+    sc = newSc;
+    cell.spectroCanvas = sc;
+  }
+  const sctx = sc.getContext('2d');
+
+  const col = cell.spectroWrite % Math.round(w);
+  const sampleRate = 44100;
+  const fftSize = 8192;
+  const binHz = sampleRate / fftSize;
+  const minFreq = 20, maxFreq = 10000;
+  const logMin = Math.log(minFreq), logMax = Math.log(maxFreq);
+
+  for (let py = 0; py < h; py++) {
+    const t = 1 - py / h;
+    const freq = Math.exp(logMin + t * (logMax - logMin));
+    const bin = freq / binHz;
+    const binLow = Math.floor(bin), binHigh = Math.min(binLow + 1, freqData.length - 1);
+    const frac = bin - binLow;
+    const val = ((1 - frac) * (freqData[binLow] || 0) + frac * (freqData[binHigh] || 0)) / 255;
+
+    let r, g, b;
+    if (fx) {
+      if (val < 0.25) {
+        const t2 = val / 0.25;
+        r = 0; g = Math.round(t2 * 40); b = Math.round(30 + t2 * 120);
+      } else if (val < 0.5) {
+        const t2 = (val - 0.25) / 0.25;
+        r = 0; g = Math.round(40 + t2 * 180); b = Math.round(150 + t2 * 60);
+      } else if (val < 0.75) {
+        const t2 = (val - 0.5) / 0.25;
+        r = Math.round(t2 * 255); g = Math.round(220 + t2 * 35); b = Math.round(210 - t2 * 160);
+      } else {
+        const t2 = (val - 0.75) / 0.25;
+        r = 255; g = 255; b = Math.round(50 + t2 * 205);
+      }
+    } else if (val < 0.25) {
+      const t2 = val / 0.25;
+      r = Math.round(t2 * 45); g = 0; b = Math.round(t2 * 80);
+    } else if (val < 0.5) {
+      const t2 = (val - 0.25) / 0.25;
+      r = Math.round(45 + t2 * 75); g = 0; b = Math.round(80 + t2 * 100);
+    } else if (val < 0.75) {
+      const t2 = (val - 0.5) / 0.25;
+      r = Math.round(120 + t2 * 100); g = Math.round(t2 * 40); b = Math.round(180 + t2 * 50);
+    } else {
+      const t2 = (val - 0.75) / 0.25;
+      r = Math.round(220 + t2 * 35); g = Math.round(40 + t2 * 140); b = Math.round(230 + t2 * 25);
+    }
+
+    sctx.fillStyle = `rgb(${r},${g},${b})`;
+    sctx.fillRect(col * dpr, py * dpr, dpr, dpr);
+  }
+
+  cell.spectroWrite++;
+
+  ctx.save();
+  const colPx = (col + 1) % Math.round(w);
+  if (colPx < Math.round(w)) {
+    ctx.drawImage(sc, colPx * dpr, 0, (Math.round(w) - colPx) * dpr, ch, 0, 0, w - colPx, h);
+  }
+  if (colPx > 0) {
+    ctx.drawImage(sc, 0, 0, colPx * dpr, ch, w - colPx, 0, colPx, h);
+  }
+  ctx.restore();
+
+  ctx.fillStyle = 'rgba(148,163,184,0.5)';
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'left';
+  const labels = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000];
+  for (const freq of labels) {
+    if (freq > maxFreq || freq < minFreq) continue;
+    const t = (Math.log(freq) - logMin) / (logMax - logMin);
+    const y = (1 - t) * h;
+    if (y < 15 || y > h - 5) continue;
+    ctx.fillText(freq >= 1000 ? `${freq / 1000}k` : `${freq}`, 6, y + 4);
+    ctx.fillRect(0, y, 3, 1);
+  }
+
+  ctx.strokeStyle = 'rgba(129,140,248,0.6)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(w - 1, 0);
+  ctx.lineTo(w - 1, h);
+  ctx.stroke();
+}
+
+function drawParticles(ctx, w, h, data, now, cell) {
+  const particles = cell.particles;
+
+  let sum = 0, freqWeightedSum = 0, totalWeight = 0;
+  for (let i = 0; i < data.length; i++) {
+    sum += data[i];
+    freqWeightedSum += data[i] * i;
+    totalWeight += data[i];
+  }
+  const volume = sum / data.length / 255;
+  const avgFreqBin = totalWeight > 0 ? freqWeightedSum / totalWeight / data.length : 0.3;
+
+  const PARTICLE_CAP = 800;
+  if (cell.particleSpawned < PARTICLE_CAP) {
+    const spawnCount = Math.min(
+      Math.floor(Math.pow(volume, 0.4) * 55),
+      PARTICLE_CAP - cell.particleSpawned
+    );
+    for (let i = 0; i < spawnCount && particles.length < MAX_PARTICLES; i++) {
+      const fg = Math.random() > 0.45;
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 0.8 + Math.random() * 1.5;
+      particles.push({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        size: fg ? 1.2 + Math.random() * 2.5 : 0.3 + Math.random() * 1,
+        opacity: fg ? 0.35 + Math.random() * 0.35 : 0.12 + Math.random() * 0.18,
+        wobbleOffset: Math.random() * Math.PI * 2,
+        birthTime: now,
+        sizePhase: Math.random() * Math.PI * 2,
+        fg,
+      });
+      cell.particleSpawned++;
+    }
+  }
+
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    if (p.exiting) {
+      p.x += (p.vx || 0) * 3;
+      p.y += (p.vy || 0) * 3;
+      p.opacity *= 0.98;
+      if (p.opacity < 0.01) { particles.splice(i, 1); continue; }
+    } else {
+      p.x += p.vx + Math.sin(now * 2 + p.wobbleOffset) * 0.3;
+      p.y += p.vy + Math.cos(now * 2 + p.wobbleOffset) * 0.3;
+      if (p.x < -10) p.x = w + 10;
+      else if (p.x > w + 10) p.x = -10;
+      if (p.y < -10) p.y = h + 10;
+      else if (p.y > h + 10) p.y = -10;
+    }
+  }
+
+  if (fx) {
+    const connectDist = 110;
+    const connectDistSq = connectDist * connectDist;
+    const fgParticles = particles.filter(p => p.fg && !p.exiting);
+    ctx.lineWidth = 1.6;
+    for (let i = 0; i < fgParticles.length; i++) {
+      for (let j = i + 1; j < fgParticles.length; j++) {
+        const dx = fgParticles[i].x - fgParticles[j].x;
+        const dy = fgParticles[i].y - fgParticles[j].y;
+        const distSq = dx * dx + dy * dy;
+        if (distSq < connectDistSq) {
+          const alpha = (1 - Math.sqrt(distSq) / connectDist) * 0.5;
+          ctx.strokeStyle = `rgba(129,140,248,${alpha})`;
+          ctx.beginPath();
+          ctx.moveTo(fgParticles[i].x, fgParticles[i].y);
+          ctx.lineTo(fgParticles[j].x, fgParticles[j].y);
+          ctx.stroke();
+        }
+      }
+    }
+  }
+
+  const volScale = 1 + volume * 5;
+  for (let pass = 0; pass < 2; pass++) {
+    const isFgPass = pass === 1;
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i];
+      if (p.fg !== isFgPass) continue;
+      const alpha = p.opacity;
+      const drawSize = p.size * volScale;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, drawSize, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(129,140,248,${alpha})`;
+      ctx.fill();
+    }
+  }
+}
+
+function drawOrbit(ctx, w, h, data, now, dt, cell) {
+  const particles = cell.orbitParticles;
+
+  let sum = 0;
+  for (let i = 0; i < data.length; i++) sum += data[i];
+  const volume = sum / data.length / 255;
+
+  let waveMax = 0;
+  for (let i = 0; i < data.length; i++) {
+    const v = Math.abs(data[i] - 128);
+    if (v > waveMax) waveMax = v;
+  }
+  const waveIntensity = waveMax / 128;
+
+  const cx = w / 2;
+  const cy = h / 2;
+  const ringR = Math.min(w, h) * 0.25;
+  const perRingCapacity = 140;
+  const ringCount = fx ? 3 : 1;
+  const totalCapacity = perRingCapacity * ringCount;
+
+  if (particles.length < totalCapacity) {
+    const spawnRate = Math.max(1, Math.floor(Math.pow(volume, 0.3) * 8));
+    for (let i = 0; i < spawnRate && particles.length < totalCapacity; i++) {
+      const edge = Math.floor(Math.random() * 4);
+      let sx, sy;
+      if (edge === 0) { sx = Math.random() * w; sy = -10; }
+      else if (edge === 1) { sx = Math.random() * w; sy = h + 10; }
+      else if (edge === 2) { sx = -10; sy = Math.random() * h; }
+      else { sx = w + 10; sy = Math.random() * h; }
+      const ring = cell.ringIndex % ringCount;
+      const ringIdx = Math.floor(cell.ringIndex / ringCount);
+      const angle = (ringIdx / perRingCapacity) * Math.PI * 2 + (Math.random() - 0.5) * 0.08;
+      const fg = Math.random() > 0.45;
+      particles.push({
+        x: sx, y: sy,
+        vx: 0, vy: 0,
+        ringAngle: angle,
+        ring,
+        size: fg ? 2 + Math.random() * 3.5 : 0.8 + Math.random() * 1.8,
+        opacity: fg ? 0.45 + Math.random() * 0.3 : 0.18 + Math.random() * 0.2,
+        sizePhase: Math.random() * Math.PI * 2,
+        birthTime: now,
+        fg,
+        settled: false,
+      });
+      cell.ringIndex++;
+    }
+  }
+
+  const rotX = now * 0.06;
+  const rotY = now * 0.045;
+  const rotZ = now * 0.03;
+  const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+  const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+  const cosZ = Math.cos(rotZ), sinZ = Math.sin(rotZ);
+
+  const project3D = (angle, r, ringType) => {
+    let x3, y3, z3;
+    if (ringType === 1) { x3 = Math.cos(angle) * r; y3 = 0; z3 = Math.sin(angle) * r; }
+    else if (ringType === 2) { x3 = 0; y3 = Math.cos(angle) * r; z3 = Math.sin(angle) * r; }
+    else { x3 = Math.cos(angle) * r; y3 = Math.sin(angle) * r; z3 = 0; }
+    const y1 = y3 * cosX - z3 * sinX;
+    const z1 = y3 * sinX + z3 * cosX;
+    const x2 = x3 * cosY + z1 * sinY;
+    const z2 = -x3 * sinY + z1 * cosY;
+    const xf = x2 * cosZ - y1 * sinZ;
+    const yf = x2 * sinZ + y1 * cosZ;
+    const perspective = 600;
+    const scale = perspective / (perspective + z2);
+    return { x: cx + xf * scale, y: cy + yf * scale, z: z2, scale };
+  };
+
+  for (let i = 0; i < particles.length; i++) {
+    const p = particles[i];
+    const pulseR = ringR * (1 + volume * 0.12);
+    const baseSpeed = p.fg ? 0.06 : -0.04;
+    const orbitSpeed = fx ? baseSpeed * 3 : baseSpeed;
+    p.ringAngle += orbitSpeed * dt;
+    const vibrate = waveIntensity * 8 * Math.sin(now * 25 + p.ringAngle * 5);
+    const targetR = pulseR + vibrate;
+    const proj = project3D(p.ringAngle, targetR, p.ring || 0);
+    const tx = proj.x;
+    const ty = proj.y;
+
+    const springForce = p.settled ? 0.012 : 0.02;
+    p.vx += (tx - p.x) * springForce;
+    p.vy += (ty - p.y) * springForce;
+    p.vx *= 0.94;
+    p.vy *= 0.94;
+    p.x += p.vx;
+    p.y += p.vy;
+
+    if (!p.settled) {
+      const dx = p.x - tx, dy = p.y - ty;
+      if (dx * dx + dy * dy < 25) p.settled = true;
+    }
+  }
+
+  if (!fx) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+      if (particles[i].ring > 0) particles.splice(i, 1);
+    }
+  }
+
+  const sorted = particles.map((p, i) => {
+    const proj = project3D(p.ringAngle, ringR, p.ring || 0);
+    return { idx: i, z: proj.z };
+  });
+  sorted.sort((a, b) => a.z - b.z);
+
+  for (const { idx } of sorted) {
+    const p = particles[idx];
+    const proj = project3D(p.ringAngle, ringR, p.ring || 0);
+    const depthScale = proj.scale;
+    const depthAlpha = 0.4 + 0.6 * ((proj.z + ringR) / (2 * ringR));
+    const age = now - p.birthTime;
+    const sizeMultiplier = 0.7 + 0.3 * Math.sin(age * 2.5 + p.sizePhase);
+    const drawSize = p.size * sizeMultiplier * (1 + volume * 0.15) * depthScale;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, Math.max(0.5, drawSize), 0, Math.PI * 2);
+    if (fx) {
+      const hue = (p.ringAngle * 180 / Math.PI + now * 30) % 360;
+      ctx.fillStyle = `hsla(${hue}, 70%, 65%, ${(p.opacity * Math.max(0.2, depthAlpha)).toFixed(2)})`;
+    } else {
+      ctx.fillStyle = `rgba(129,140,248,${(p.opacity * Math.max(0.2, depthAlpha)).toFixed(2)})`;
+    }
+    ctx.fill();
+  }
+}
+
+function drawSphere(ctx, w, h, data, cell) {
+  const cx = w / 2;
+  const cy = h / 2;
+  const baseR = Math.min(w, h) * 0.24;
+  const t = cell.sphereTime;
+  const sphereFx = fx;
+  const rotX = sphereFx ? t * 0.09 : 0;
+  const rotY = t * (sphereFx ? 0.2 : 0.12);
+  const rotZ = t * 0.07;
+
+  let sum = 0;
+  for (let i = 0; i < data.length; i++) sum += data[i];
+  const avg = sum / data.length / 255;
+
+  const cosRX = Math.cos(rotX), sinRX = Math.sin(rotX);
+  const cosRY = Math.cos(rotY), sinRY = Math.sin(rotY);
+  const cosRZ = Math.cos(rotZ), sinRZ = Math.sin(rotZ);
+  const project = (x3, y3, z3) => {
+    let ya = y3 * cosRX - z3 * sinRX;
+    let za = y3 * sinRX + z3 * cosRX;
+    let x1 = x3 * cosRY + za * sinRY;
+    let z1 = -x3 * sinRY + za * cosRY;
+    let x2 = x1 * cosRZ - ya * sinRZ;
+    let y2 = x1 * sinRZ + ya * cosRZ;
+    let z2 = z1;
+    const scale = 1 / (1 + z2 / (baseR * 4));
+    return { sx: cx + x2 * scale, sy: cy + y2 * scale, z: z2 };
+  };
+
+  ctx.lineWidth = 1.2;
+  ctx.lineCap = 'round';
+
+  const maxBin = Math.floor(data.length * 0.68);
+  const bassEnd = Math.floor(maxBin * 0.2);
+  const midEnd = Math.floor(maxBin * 0.55);
+  let bassSum = 0, midSum = 0, highSum = 0;
+  for (let i = 0; i < bassEnd; i++) bassSum += data[i];
+  for (let i = bassEnd; i < midEnd; i++) midSum += data[i];
+  for (let i = midEnd; i < maxBin; i++) highSum += data[i];
+  const bassAvg = bassSum / bassEnd / 255;
+  const midAvg = midSum / (midEnd - bassEnd) / 255;
+  const highAvg = highSum / (maxBin - midEnd) / 255;
+  const baseDistort = 0.3 + avg * 0.8;
+  const rippleStrength = avg * 0.15;
+
+  if (sphereFx) {
+    const s = baseR * (1 + avg * 0.15);
+    const verts = [
+      [-s,-s,-s],[s,-s,-s],[s,s,-s],[-s,s,-s],
+      [-s,-s,s],[s,-s,s],[s,s,s],[-s,s,s],
+    ];
+    const edges = [
+      [0,1],[1,2],[2,3],[3,0],
+      [4,5],[5,6],[6,7],[7,4],
+      [0,4],[1,5],[2,6],[3,7],
+    ];
+    const segs = 20;
+    for (let e = 0; e < edges.length; e++) {
+      const [a, b] = edges[e];
+      const va = verts[a], vb = verts[b];
+      ctx.beginPath();
+      for (let i = 0; i <= segs; i++) {
+        const frac = i / segs;
+        let ex = va[0] + (vb[0] - va[0]) * frac;
+        let ey = va[1] + (vb[1] - va[1]) * frac;
+        let ez = va[2] + (vb[2] - va[2]) * frac;
+        const len = Math.sqrt(ex * ex + ey * ey + ez * ez) || 1;
+        const freqIdx = Math.floor((e * segs + i) / (edges.length * segs + 1) * maxBin);
+        const pointVal = data[Math.min(freqIdx, maxBin - 1)] / 255;
+        const ripple = rippleStrength * Math.sin(frac * 12 + t * 4 + e * 2);
+        const disp = 1 + pointVal * baseDistort * 0.3 + ripple;
+        ex *= disp; ey *= disp; ez *= disp;
+        const { sx, sy } = project(ex, ey, ez);
+        if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+      }
+      const hue = (e / edges.length * 360 + t * 25) % 360;
+      const edgeAlpha = 0.25 + avg * 0.45;
+      ctx.strokeStyle = `hsla(${hue}, 70%, 60%, ${edgeAlpha})`;
+      ctx.stroke();
+    }
+    const faceDiags = [[0,6],[1,7],[2,4],[3,5]];
+    for (let d = 0; d < faceDiags.length; d++) {
+      const [a, b] = faceDiags[d];
+      const va = verts[a], vb = verts[b];
+      ctx.beginPath();
+      for (let i = 0; i <= segs; i++) {
+        const frac = i / segs;
+        let ex = va[0] + (vb[0] - va[0]) * frac;
+        let ey = va[1] + (vb[1] - va[1]) * frac;
+        let ez = va[2] + (vb[2] - va[2]) * frac;
+        const freqIdx = Math.floor(frac * maxBin);
+        const pointVal = data[Math.min(freqIdx, maxBin - 1)] / 255;
+        const ripple = rippleStrength * Math.sin(frac * 10 + t * 3 + d);
+        const disp = 1 + pointVal * baseDistort * 0.2 + ripple;
+        ex *= disp; ey *= disp; ez *= disp;
+        const { sx, sy } = project(ex, ey, ez);
+        if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+      }
+      const hue = (d / faceDiags.length * 360 + t * 20 + 180) % 360;
+      ctx.strokeStyle = `hsla(${hue}, 60%, 55%, ${0.12 + avg * 0.2})`;
+      ctx.stroke();
+    }
+  } else {
+    const lonLines = 16;
+    const lonPts = 48;
+    for (let l = 0; l < lonLines; l++) {
+      const phi = (l / lonLines) * Math.PI;
+      ctx.beginPath();
+      for (let i = 0; i <= lonPts; i++) {
+        const theta = (i / lonPts) * Math.PI * 2;
+        const vertPos = Math.abs(Math.cos(theta));
+        const bandVal = bassAvg * (1 - vertPos) + highAvg * vertPos + midAvg * 0.5;
+        const halfPts = lonPts / 2;
+        const mirrorI = i <= halfPts ? i : lonPts - i;
+        const freqIdx = Math.floor((mirrorI / halfPts) * maxBin);
+        const pointVal = data[Math.min(freqIdx, maxBin - 1)] / 255;
+        const combined = bandVal * 0.6 + pointVal * 0.4;
+        const ripple = rippleStrength * Math.sin(theta * 8 + phi * 6 + t * 4) * Math.sin(phi * 4 - t * 3);
+        const r = baseR * (1 + combined * baseDistort * 0.5 + ripple);
+        const x3 = r * Math.sin(theta) * Math.cos(phi);
+        const y3 = r * Math.cos(theta);
+        const z3 = r * Math.sin(theta) * Math.sin(phi);
+        const { sx, sy } = project(x3, y3, z3);
+        if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+      }
+      const depthPt = project(Math.cos(phi) * baseR, 0, Math.sin(phi) * baseR);
+      const depth = depthPt.z / baseR;
+      const alpha = 0.15 + depth * 0.2 + avg * 0.3;
+      ctx.strokeStyle = `rgba(129,140,248,${Math.max(0.05, alpha)})`;
+      ctx.stroke();
+    }
+
+    const latLines = 10;
+    const latPts = 64;
+    for (let l = 1; l < latLines; l++) {
+      const theta = (l / latLines) * Math.PI;
+      const latR = baseR * Math.sin(theta);
+      const latY = baseR * Math.cos(theta);
+      const vertPos = Math.abs(Math.cos(theta));
+      const latBandVal = bassAvg * (1 - vertPos) + highAvg * vertPos + midAvg * 0.5;
+      ctx.beginPath();
+      for (let i = 0; i <= latPts; i++) {
+        const phi = (i / latPts) * Math.PI * 2;
+        const halfPts = latPts / 2;
+        const mirrorI = i <= halfPts ? i : latPts - i;
+        const freqIdx = Math.floor((mirrorI / halfPts) * maxBin);
+        const pointVal = data[Math.min(freqIdx, maxBin - 1)] / 255;
+        const combined = latBandVal * 0.6 + pointVal * 0.4;
+        const ripple = rippleStrength * Math.sin(theta * 8 + phi * 6 + t * 4) * Math.sin(phi * 4 - t * 3);
+        const r = latR * (1 + combined * baseDistort * 0.5 + ripple);
+        const x3 = r * Math.cos(phi);
+        const z3 = r * Math.sin(phi);
+        const { sx, sy } = project(x3, latY, z3);
+        if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+      }
+      const alpha = 0.1 + avg * 0.35;
+      ctx.strokeStyle = `rgba(167,139,250,${alpha})`;
+      ctx.stroke();
+    }
+  }
+}
+
+function drawGrid(ctx, w, h, data, now, cell) {
+  const cols = 24;
+  const rows = 14;
+  const marginX = w * 0.08;
+  const marginY = h * 0.08;
+  const spacingX = (w - marginX * 2) / (cols - 1);
+  const spacingY = (h - marginY * 2) / (rows - 1);
+
+  let grid = cell.gridParticles;
+  if (!grid || grid.length !== cols * rows || grid._w !== w || grid._h !== h) {
+    grid = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        grid.push({
+          homeX: marginX + c * spacingX,
+          homeY: marginY + r * spacingY,
+          x: marginX + c * spacingX,
+          y: marginY + r * spacingY,
+          vx: 0, vy: 0,
+          col: c, row: r,
+        });
+      }
+    }
+    grid._w = w;
+    grid._h = h;
+    cell.gridParticles = grid;
+  }
+
+  let sum = 0;
+  for (let i = 0; i < data.length; i++) sum += data[i];
+  const volume = sum / data.length / 255;
+  const boostedVol = Math.pow(volume, 0.6);
+
+  const third = Math.floor(data.length / 3);
+  let bassSum = 0, midSum = 0, highSum = 0;
+  for (let i = 0; i < third; i++) bassSum += data[i];
+  for (let i = third; i < third * 2; i++) midSum += data[i];
+  for (let i = third * 2; i < data.length; i++) highSum += data[i];
+  const bass = bassSum / third / 255;
+  const mid = midSum / third / 255;
+  const high = highSum / (data.length - third * 2) / 255;
+
+  const maxDisplace = Math.min(spacingX, spacingY) * 0.8;
+  for (let i = 0; i < grid.length; i++) {
+    const p = grid[i];
+    const nx = p.col / (cols - 1);
+    const ny = p.row / (rows - 1);
+
+    const bassWave = bass * maxDisplace * 0.7 * Math.sin(now * 1.5 + nx * Math.PI * 2);
+    const midWave = mid * maxDisplace * 0.5 * Math.sin(now * 3 + (nx + ny) * Math.PI * 3);
+    const highShimmer = high * maxDisplace * 0.3 * Math.sin(now * 8 + p.col * 1.2 + p.row * 0.9);
+
+    const vibX = midWave * 0.7 + highShimmer + boostedVol * 4 * Math.sin(now * 2.5 + p.col * 0.6);
+    const vibY = bassWave + midWave * 0.5 + boostedVol * 3 * Math.cos(now * 1.8 + p.row * 0.7);
+    const targetX = p.homeX + vibX;
+    const targetY = p.homeY + vibY;
+
+    p.vx += (targetX - p.x) * 0.04;
+    p.vy += (targetY - p.y) * 0.04;
+    p.vx *= 0.88;
+    p.vy *= 0.88;
+    p.x += p.vx;
+    p.y += p.vy;
+  }
+
+  if (fx) {
+    const centerX = w / 2, centerY = h / 2;
+    const maxDist = Math.sqrt(centerX * centerX + centerY * centerY);
+    const pulseSpeed = 300;
+    const pulsePhase = (now * pulseSpeed) % maxDist;
+
+    ctx.lineWidth = 0.8;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const idx = r * cols + c;
+        const p = grid[idx];
+        const distFromCenter = Math.sqrt((p.x - centerX) ** 2 + (p.y - centerY) ** 2);
+        const angle = Math.atan2(p.y - centerY, p.x - centerX);
+        const hue = ((angle / Math.PI * 180 + 180) + now * 30) % 360;
+        const pulseDist = Math.abs(distFromCenter - pulsePhase);
+        const pulseGlow = Math.max(0, 1 - pulseDist / 60) * bass * 2;
+        const lineAlpha = (0.06 + boostedVol * 0.18 + pulseGlow * 0.3).toFixed(2);
+
+        const drawLine = (other) => {
+          ctx.strokeStyle = `hsla(${hue}, 70%, 60%, ${lineAlpha})`;
+          ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(other.x, other.y); ctx.stroke();
+        };
+        if (c < cols - 1) drawLine(grid[idx + 1]);
+        if (r < rows - 1) drawLine(grid[idx + cols]);
+        if (c < cols - 1 && r < rows - 1) drawLine(grid[idx + cols + 1]);
+        if (c > 0 && r < rows - 1) drawLine(grid[idx + cols - 1]);
+      }
+    }
+
+    for (let i = 0; i < grid.length; i++) {
+      const p = grid[i];
+      const dx = p.x - p.homeX, dy = p.y - p.homeY;
+      const displacement = Math.sqrt(dx * dx + dy * dy) / maxDisplace;
+      const distFromCenter = Math.sqrt((p.x - centerX) ** 2 + (p.y - centerY) ** 2);
+      const angle = Math.atan2(p.y - centerY, p.x - centerX);
+      const hue = ((angle / Math.PI * 180 + 180) + now * 30) % 360;
+      const pulseDist = Math.abs(distFromCenter - pulsePhase);
+      const pulseGlow = Math.max(0, 1 - pulseDist / 60) * bass * 2;
+      const size = 2 + boostedVol * 4.5 + displacement * 2 + pulseGlow * 3;
+      const alpha = Math.min(1, 0.3 + boostedVol * 0.5 + displacement * 0.2 + pulseGlow * 0.4);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${hue}, 70%, ${55 + pulseGlow * 20}%, ${alpha.toFixed(2)})`;
+      ctx.fill();
+    }
+  } else {
+    for (let i = 0; i < grid.length; i++) {
+      const p = grid[i];
+      const dx = p.x - p.homeX, dy = p.y - p.homeY;
+      const displacement = Math.sqrt(dx * dx + dy * dy) / maxDisplace;
+      const size = 1.5 + boostedVol * 3.5 + displacement * 1.5;
+      const alpha = 0.25 + boostedVol * 0.45 + displacement * 0.15;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(129,140,248,${Math.min(1, alpha).toFixed(2)})`;
+      ctx.fill();
+    }
+  }
+}
+
+function drawLaser(ctx, w, h, timeData, freqData, now, cell) {
+  const cx = w / 2;
+  const cy = h / 2;
+  const lc = cell.laserCanvas;
+  if (!lc) return;
+  const dpr = window.devicePixelRatio || 1;
+  const lctx = lc.getContext('2d');
+  lctx.save();
+  lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  let sum = 0;
+  for (let i = 0; i < freqData.length; i++) sum += freqData[i];
+  const volume = sum / freqData.length / 255;
+  const rawAmp = Math.pow(volume, 0.3);
+  const amp = Math.min(Math.max(rawAmp, 0.35), 0.85);
+
+  const len = timeData.length;
+  const offset = Math.floor(len * 0.25);
+  const radius = Math.max(Math.min(w, h) * 0.2 * amp, 25);
+
+  const rot = now * 0.3;
+  const cosR = Math.cos(rot);
+  const sinR = Math.sin(rot);
+
+  const raw = [];
+  const step = 2;
+  const avgW = 4;
+  for (let i = 0; i < len; i += step) {
+    let xSum = 0, ySum = 0, count = 0;
+    for (let j = -avgW; j <= avgW; j++) {
+      const idx = ((i + j) % len + len) % len;
+      const oIdx = ((i + j + offset) % len + len) % len;
+      xSum += (timeData[idx] - 128) / 128;
+      ySum += (timeData[oIdx] - 128) / 128;
+      count++;
+    }
+    const xi = xSum / count;
+    const yi = ySum / count;
+    const rx = xi * cosR - yi * sinR;
+    const ry = xi * sinR + yi * cosR;
+    raw.push({ x: cx + rx * radius, y: cy + ry * radius });
+  }
+
+  const pts = raw.map((p, i) => {
+    const prev = raw[(i - 1 + raw.length) % raw.length];
+    const next = raw[(i + 1) % raw.length];
+    return { x: prev.x * 0.2 + p.x * 0.6 + next.x * 0.2, y: prev.y * 0.2 + p.y * 0.6 + next.y * 0.2 };
+  });
+
+  if (pts.length < 2) { lctx.restore(); return; }
+
+  const drawSmooth = () => {
+    lctx.beginPath();
+    lctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 0; i < pts.length - 1; i++) {
+      const mx = (pts[i].x + pts[i + 1].x) / 2;
+      const my = (pts[i].y + pts[i + 1].y) / 2;
+      lctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+    }
+    lctx.quadraticCurveTo(pts[pts.length - 1].x, pts[pts.length - 1].y, pts[0].x, pts[0].y);
+  };
+
+  const laserHue = 268 + Math.sin(now * 0.4) * 12;
+  const brightness = 0.4 + amp * 0.6;
+
+  drawSmooth();
+  lctx.strokeStyle = `hsla(${laserHue}, 85%, 55%, ${brightness * 0.3})`;
+  lctx.lineWidth = 6 + amp * 4;
+  lctx.lineCap = 'round';
+  lctx.lineJoin = 'round';
+  lctx.stroke();
+
+  drawSmooth();
+  lctx.strokeStyle = `hsla(${laserHue - 5}, 80%, 70%, ${brightness * 0.6})`;
+  lctx.lineWidth = 2.5 + amp * 2;
+  lctx.stroke();
+
+  drawSmooth();
+  lctx.strokeStyle = `hsla(${laserHue + 10}, 40%, 92%, ${brightness * 0.9})`;
+  lctx.lineWidth = 1 + amp * 0.8;
+  lctx.stroke();
+
+  const headIdx = Math.floor((now * 80) % pts.length);
+  const head = pts[headIdx];
+  lctx.beginPath();
+  lctx.arc(head.x, head.y, 2 + amp * 3, 0, Math.PI * 2);
+  lctx.fillStyle = `hsla(${laserHue + 10}, 30%, 95%, ${brightness})`;
+  lctx.fill();
+
+  if (fx) {
+    const copyScale = 0.4;
+    const spacing = Math.min(w, h) * (0.28 + amp * 0.1);
+
+    const drawSmoothAt = (ox, oy, sc) => {
+      lctx.beginPath();
+      const p0x = cx + ox + (pts[0].x - cx) * sc;
+      const p0y = cy + oy + (pts[0].y - cy) * sc;
+      lctx.moveTo(p0x, p0y);
+      for (let i = 0; i < pts.length - 1; i++) {
+        const px = cx + ox + (pts[i].x - cx) * sc;
+        const py = cy + oy + (pts[i].y - cy) * sc;
+        const nx = cx + ox + (pts[i + 1].x - cx) * sc;
+        const ny = cy + oy + (pts[i + 1].y - cy) * sc;
+        lctx.quadraticCurveTo(px, py, (px + nx) / 2, (py + ny) / 2);
+      }
+      const lx = cx + ox + (pts[pts.length - 1].x - cx) * sc;
+      const ly = cy + oy + (pts[pts.length - 1].y - cy) * sc;
+      lctx.quadraticCurveTo(lx, ly, p0x, p0y);
+    };
+
+    for (let gx = -2; gx <= 2; gx++) {
+      for (let gy = -2; gy <= 2; gy++) {
+        if (gx === 0 && gy === 0) continue;
+        const dist = Math.sqrt(gx * gx + gy * gy);
+        const alpha = Math.max(0, 1 - dist / 3) * 0.5;
+        if (alpha < 0.01) continue;
+
+        const ox = gx * spacing;
+        const oy = gy * spacing;
+
+        drawSmoothAt(ox, oy, copyScale);
+        lctx.strokeStyle = `hsla(${laserHue}, 80%, 65%, ${alpha * brightness})`;
+        lctx.lineWidth = (3 + amp * 3) * copyScale;
+        lctx.stroke();
+
+        drawSmoothAt(ox, oy, copyScale);
+        lctx.strokeStyle = `hsla(${laserHue + 10}, 40%, 92%, ${alpha * brightness * 0.7})`;
+        lctx.lineWidth = (0.8 + amp * 0.5) * copyScale;
+        lctx.stroke();
+      }
+    }
+  }
+
+  lctx.restore();
+
+  if (amp < 0.05) {
+    lctx.save();
+    lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    lctx.beginPath();
+    lctx.arc(cx, cy, 3, 0, Math.PI * 2);
+    lctx.fillStyle = `hsla(${laserHue}, 80%, 75%, 0.8)`;
+    lctx.fill();
+    lctx.restore();
+  }
+
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(lc, 0, 0);
+  ctx.restore();
+}
+
+// ===================== START =====================
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
