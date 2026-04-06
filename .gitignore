@@ -6,3 +6,10 @@ dist/
 dist-client/
 cookies.txt
 .env
+
+# Site (Next.js)
+site/.next/
+site/node_modules/
+site/out/
+site/.vercel
+site/.env*
